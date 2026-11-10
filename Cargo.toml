@@ -1,0 +1,29 @@
+[package]
+name = "zvte"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.74"
+description = "Zero-dependency, allocation-free ANSI/VT terminal parser with batched text callbacks"
+license = "MIT"
+repository = "https://github.com/LIghtJUNction/zvte"
+documentation = "https://docs.rs/zvte"
+readme = "README.md"
+keywords = ["ansi", "terminal", "parser", "no-std", "vt"]
+categories = ["parsing", "no-std", "embedded"]
+include = ["src/**/*.rs", "Cargo.toml", "README.md", "LICENSE-MIT", "CHANGELOG.md", "examples/**/*.rs"]
+
+[workspace]
+exclude = ["comparison"]
+
+[dependencies]
+
+[dev-dependencies]
+
+[build-dependencies]
+
+[profile.bench]
+lto = "thin"
+codegen-units = 1
+
+[package.metadata.docs.rs]
+rustdoc-args = ["-D", "warnings"]
