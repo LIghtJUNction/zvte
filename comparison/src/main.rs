@@ -316,7 +316,13 @@ fn benchmark() -> Result<(), String> {
     };
     let selected: Vec<_> = workloads()
         .into_iter()
-        .filter(|w| w.name.contains(&filter))
+        .filter(|w| {
+            if perf_iterations.is_some() {
+                w.name == filter
+            } else {
+                w.name.contains(&filter)
+            }
+        })
         .collect();
     if selected.is_empty() {
         return Err(format!("no workload matches {filter:?}"));

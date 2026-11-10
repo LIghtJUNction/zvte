@@ -549,6 +549,116 @@ fn utf8_encoded_c1_is_a_control_for_every_split() {
 }
 
 #[test]
+fn every_unicode_scalar_roundtrips_whole_and_chunked() {
+    // Exhaust the valid scalar space natively. Interpreter runs retain every
+    // encoding-width boundary, the surrogate gap and representative scripts.
+    let input: String = if cfg!(miri) {
+        [
+            0x20, 0x7f, 0x80, 0x9f, 0xa0, 0x7ff, 0x800, 0x3a9, 0x4e2d, 0xd7ff, 0xe000, 0xffff,
+            0x10000, 0x1f980, 0x10ffff,
+        ]
+        .into_iter()
+        .filter_map(char::from_u32)
+        .collect()
+    } else {
+        (0x20..=0x10ffff).filter_map(char::from_u32).collect()
+    };
+    struct Scalars<'a>(std::str::Chars<'a>);
+    impl Perform for Scalars<'_> {
+        fn print(&mut self, c: char) {
+            assert!(!('\u{80}'..='\u{9f}').contains(&c));
+            assert_eq!(self.0.next(), Some(c));
+        }
+        fn execute(&mut self, byte: u8) {
+            assert!((0x80..=0x9f).contains(&byte));
+            assert_eq!(self.0.next(), Some(char::from(byte)));
+        }
+    }
+    for chunk in [input.len(), 17] {
+        let mut parser = Parser::new();
+        let mut output = Scalars(input.chars());
+        for bytes in input.as_bytes().chunks(chunk) {
+            parser.advance(bytes, &mut output);
+        }
+        assert!(parser.is_ground());
+        parser.finish(&mut output);
+        assert_eq!(output.0.next(), None);
+    }
+}
+
+#[test]
+fn restricted_utf8_leads_reject_overlong_surrogate_and_out_of_range_encodings() {
+    use Event::{Execute as C, Print as P};
+    let replacement = P('\u{fffd}');
+    let cases: &[(&[u8], Vec<Event>)] = &[
+        (
+            b"\xc0\xafZ",
+            vec![replacement.clone(), replacement.clone(), P('Z')],
+        ),
+        (
+            b"\xe0\x9f\xbfZ",
+            vec![replacement.clone(), C(0x9f), replacement.clone(), P('Z')],
+        ),
+        (
+            b"\xed\xa0\x80Z",
+            vec![replacement.clone(), replacement.clone(), C(0x80), P('Z')],
+        ),
+        (
+            b"\xf0\x8f\xbf\xbfZ",
+            vec![
+                replacement.clone(),
+                C(0x8f),
+                replacement.clone(),
+                replacement.clone(),
+                P('Z'),
+            ],
+        ),
+        (
+            b"\xf4\x90\x80\x80Z",
+            vec![replacement.clone(), C(0x90), C(0x80), C(0x80), P('Z')],
+        ),
+        (
+            b"\xf5\x80\x80\x80Z",
+            vec![replacement.clone(), C(0x80), C(0x80), C(0x80), P('Z')],
+        ),
+        (b"\xe1\x80Z", vec![replacement.clone(), P('Z')]),
+        (b"\xf1\x80\x80Z", vec![replacement.clone(), P('Z')]),
+        (b"\xf4\x8f\xbf", vec![replacement.clone()]),
+        (b"\xe0\xa0", vec![replacement.clone()]),
+        (
+            b"\xe1\x80\x1b[m",
+            vec![replacement.clone(), csi(&[&[0]], b"", false, 'm')],
+        ),
+        (
+            b"\xf1\x80\x80\x1b[31m",
+            vec![replacement, csi(&[&[31]], b"", false, 'm')],
+        ),
+    ];
+    for (input, expected) in cases {
+        for first in 0..=input.len() {
+            for second in first..=input.len() {
+                let mut parser = Parser::new();
+                let mut output = Recorder::default();
+                for part in [
+                    &input[..first],
+                    &input[first..second],
+                    b"",
+                    &input[second..],
+                ] {
+                    parser.advance(part, &mut output);
+                }
+                parser.finish(&mut output);
+                assert_eq!(
+                    &output.0, expected,
+                    "bytes={input:02x?}, splits={first},{second}"
+                );
+                assert!(parser.is_ground());
+            }
+        }
+    }
+}
+
+#[test]
 fn finish_unhooks_active_dcs_once() {
     let mut parser = Parser::new();
     let mut recorder = Recorder::default();

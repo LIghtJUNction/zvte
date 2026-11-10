@@ -169,6 +169,24 @@ pub fn workloads() -> Vec<Workload> {
         "\x1b[36m终端输出：你好 🦀 café Ελληνικά русский\x1b[0m\r\n".as_bytes(),
         1024,
     );
+    let unicode_cjk = repeated("终端输出状态更新数据处理网络连接测试完成".as_bytes(), 1024);
+    let unicode_two_byte = repeated("Ελληνικάрусскийالعربيةעבריתéøñö".as_bytes(), 1024);
+    let unicode_emoji = repeated("🦀🚀🌍🔒🧪💻🔥📦🌈🛰".as_bytes(), 1536);
+    let mut unicode_mixed = String::new();
+    let messages = [
+        "连接成功：终端已就绪 🦀",
+        "Ελληνικά русский café",
+        "مرحبا بالعالم 🌍",
+        "日本語の出力テスト 🧪",
+    ];
+    for i in 0..1024 {
+        unicode_mixed.push_str(&format!(
+            "request={i}\t\x1b[38;2;12;34;56m{}\x1b[0m bytes={}\r\n",
+            messages[i % messages.len()],
+            i * 17,
+        ));
+    }
+    let unicode_mixed = unicode_mixed.into_bytes();
     let malformed = repeated(b"ok\x80\xff\xc0\xaf\xed\xa0\x80\xe2x\x1b[1?2m\x1b[:::::::::::::::::::::::::::::::::m\x1bP?1<qdiscard\x18\x1b]0;cancel\x1a", 512);
     let mut truncated = repeated(b"\x1b[31mhello\x1b[0m\r\n", 2048);
     truncated.extend_from_slice(b"\x1b[12;9");
@@ -212,6 +230,36 @@ pub fn workloads() -> Vec<Workload> {
             name: "unicode",
             chunk: unicode.len(),
             data: unicode,
+        },
+        Workload {
+            name: "unicode-cjk",
+            chunk: unicode_cjk.len(),
+            data: unicode_cjk.clone(),
+        },
+        Workload {
+            name: "unicode-two-byte",
+            chunk: unicode_two_byte.len(),
+            data: unicode_two_byte,
+        },
+        Workload {
+            name: "unicode-emoji",
+            chunk: unicode_emoji.len(),
+            data: unicode_emoji.clone(),
+        },
+        Workload {
+            name: "unicode-mixed",
+            chunk: unicode_mixed.len(),
+            data: unicode_mixed,
+        },
+        Workload {
+            name: "unicode-short-chunks",
+            chunk: 17,
+            data: unicode_cjk,
+        },
+        Workload {
+            name: "unicode-one-byte",
+            chunk: 1,
+            data: unicode_emoji,
         },
         Workload {
             name: "recording",

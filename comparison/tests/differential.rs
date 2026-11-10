@@ -88,6 +88,37 @@ fn utf8_valid_invalid_and_truncated_all_boundaries() {
 }
 
 #[test]
+fn utf8_boundary_prefixes_accept_or_reject_every_next_byte() {
+    // These prefixes exercise each restricted second-byte range, both sides
+    // of the surrogate gap, and each position in a four-byte sequence.
+    let prefixes: &[&[u8]] = &[
+        b"\xc2",
+        b"\xdf",
+        b"\xe0",
+        b"\xe0\xa0",
+        b"\xed",
+        b"\xed\x9f",
+        b"\xef\xbf",
+        b"\xf0",
+        b"\xf0\x90",
+        b"\xf0\x90\x80",
+        b"\xf4",
+        b"\xf4\x8f",
+        b"\xf4\x8f\xbf",
+    ];
+    for prefix in prefixes {
+        for next in 0..=255 {
+            let mut input = prefix.to_vec();
+            input.push(next);
+            input.extend_from_slice(b"Z\x1b[0m");
+            for split in 0..=input.len() {
+                equal_under_arbitrary_chunks(&[&input[..split], b"", &input[split..]]);
+            }
+        }
+    }
+}
+
+#[test]
 fn parameter_saturation_capacity_and_subparameters() {
     for &separators in b";:" {
         for count in [0usize, 1, 30, 31, 32, 33, 255, 4096] {

@@ -460,6 +460,81 @@ impl<const N: usize> Parser<N> {
     }
 
     fn start_utf8<P: Perform + ?Sized>(&mut self, input: &[u8], handler: &mut P) -> usize {
+        // Validate and decode each complete scalar together. A malformed or
+        // truncated suffix stays on the existing recovery path so its byte
+        // grouping, replacement callbacks and pending state remain unchanged.
+        let mut i = 0;
+        while i < input.len() {
+            let bytes = &input[i..];
+            let first = bytes[0];
+            if first < 0x80 {
+                if first == 0x1b {
+                    return i;
+                }
+                Self::decoded(handler, first as char);
+                i += 1;
+                continue;
+            }
+            let (code, width) = match first {
+                0xc2..=0xdf if bytes.len() >= 2 => {
+                    let second = bytes[1];
+                    if second.wrapping_sub(0x80) >= 0x40 {
+                        break;
+                    }
+                    (((first as u32 & 0x1f) << 6) | (second as u32 & 0x3f), 2)
+                }
+                0xe0..=0xef if bytes.len() >= 3 => {
+                    let second = bytes[1];
+                    let third = bytes[2];
+                    let valid_second = match first {
+                        0xe0 => (0xa0..=0xbf).contains(&second),
+                        0xed => (0x80..=0x9f).contains(&second),
+                        _ => second.wrapping_sub(0x80) < 0x40,
+                    };
+                    if !valid_second || third.wrapping_sub(0x80) >= 0x40 {
+                        break;
+                    }
+                    (
+                        ((first as u32 & 0x0f) << 12)
+                            | ((second as u32 & 0x3f) << 6)
+                            | (third as u32 & 0x3f),
+                        3,
+                    )
+                }
+                0xf0..=0xf4 if bytes.len() >= 4 => {
+                    let second = bytes[1];
+                    let third = bytes[2];
+                    let fourth = bytes[3];
+                    let valid_second = match first {
+                        0xf0 => (0x90..=0xbf).contains(&second),
+                        0xf4 => (0x80..=0x8f).contains(&second),
+                        _ => second.wrapping_sub(0x80) < 0x40,
+                    };
+                    if !valid_second
+                        || third.wrapping_sub(0x80) >= 0x40
+                        || fourth.wrapping_sub(0x80) >= 0x40
+                    {
+                        break;
+                    }
+                    (
+                        ((first as u32 & 0x07) << 18)
+                            | ((second as u32 & 0x3f) << 12)
+                            | ((third as u32 & 0x3f) << 6)
+                            | (fourth as u32 & 0x3f),
+                        4,
+                    )
+                }
+                _ => break,
+            };
+            // The byte ranges above reject overlong encodings, surrogates and
+            // scalars above U+10FFFF before conversion. Keep the safe conversion.
+            Self::decoded(handler, char::from_u32(code).unwrap_or('\u{fffd}'));
+            i += width;
+        }
+        i + self.start_utf8_slow(&input[i..], handler)
+    }
+
+    fn start_utf8_slow<P: Perform + ?Sized>(&mut self, input: &[u8], handler: &mut P) -> usize {
         let end = scan::escape(input);
         let mut offset = 0;
         // Search for ESC once per run. Repeating that search after each bad
