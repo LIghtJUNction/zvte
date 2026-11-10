@@ -1,5 +1,33 @@
 use zvte::{Params, Parser, Perform};
 
+#[test]
+fn long_invalid_utf8_run_preserves_every_scalar() {
+    #[derive(Default)]
+    struct Counts {
+        nbsp: usize,
+        replacement: usize,
+    }
+    impl Perform for Counts {
+        fn print(&mut self, c: char) {
+            match c {
+                '\u{a0}' => self.nbsp += 1,
+                '\u{fffd}' => self.replacement += 1,
+                _ => panic!("unexpected scalar {c:?}"),
+            }
+        }
+    }
+    let repetitions = if cfg!(miri) { 64 } else { 65_536 };
+    let bytes = [0xc2, 0xa0, 0xff].repeat(repetitions);
+    let mut output = Counts::default();
+    let mut parser = Parser::new();
+    parser.advance(&bytes, &mut output);
+    assert_eq!(
+        (output.nbsp, output.replacement),
+        (repetitions, repetitions)
+    );
+    assert!(parser.is_ground());
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Event {
     Print(char),

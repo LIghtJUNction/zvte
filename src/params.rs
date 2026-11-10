@@ -10,18 +10,18 @@ pub const MAX_PARAMS: usize = 32;
 #[derive(Clone, Eq)]
 pub struct Params {
     values: [u16; MAX_PARAMS],
-    groups: [u8; MAX_PARAMS],
+    ends: u32,
     len: u8,
-    group: u8,
+    continued: bool,
 }
 
 impl Params {
     pub(crate) const fn new() -> Self {
         Self {
             values: [0; MAX_PARAMS],
-            groups: [0; MAX_PARAMS],
+            ends: 0,
             len: 0,
-            group: 0,
+            continued: false,
         }
     }
 
@@ -49,7 +49,8 @@ impl Params {
     #[inline]
     pub(crate) fn clear(&mut self) {
         self.len = 0;
-        self.group = 0;
+        self.ends = 0;
+        self.continued = false;
     }
 
     #[inline]
@@ -64,11 +65,15 @@ impl Params {
             return false;
         }
         self.values[i] = value;
-        self.groups[self.group as usize] = (i + 1 - self.group as usize) as u8;
-        self.len += 1;
-        if !subparameter {
-            self.group = self.len;
+        let end = 1u32 << i;
+        // Every stored prefix ends a group, even if overflow follows a colon.
+        // Appending a subparameter replaces the preceding temporary endpoint.
+        if self.continued {
+            self.ends &= !(end >> 1);
         }
+        self.ends |= end;
+        self.len += 1;
+        self.continued = subparameter;
         true
     }
 }
@@ -114,7 +119,7 @@ impl<'a> Iterator for ParamsIter<'a> {
             return None;
         }
         let start = self.pos;
-        self.pos += self.params.groups[start] as usize;
+        self.pos += (self.params.ends >> start).trailing_zeros() as usize + 1;
         Some(&self.params.values[start..self.pos])
     }
 

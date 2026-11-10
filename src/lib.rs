@@ -6,19 +6,24 @@
 //! preserves one [`Perform::print`] callback per character.
 //!
 //! ```
-//! use zvte::{Parser, Perform, Params};
+//! use zvte::{Params, Parser, Perform};
 //!
-//! struct Screen;
-//! impl Perform for Screen {
-//!     fn print(&mut self, c: char) { /* draw c */ let _ = c; }
-//!     fn csi_dispatch(&mut self, p: &Params, i: &[u8], ignore: bool, action: char) {
-//!         if !ignore && i.is_empty() && action == 'm' {
-//!             for parameter in p { let _ = parameter; /* apply SGR */ }
+//! #[derive(Default)]
+//! struct Counter { characters: usize, sgr_commands: usize }
+//! impl Perform for Counter {
+//!     fn print(&mut self, _: char) { self.characters += 1; }
+//!     fn text(&mut self, ascii: &[u8]) { self.characters += ascii.len(); }
+//!     fn csi_dispatch(&mut self, _: &Params, intermediates: &[u8], ignore: bool, action: char) {
+//!         if !ignore && intermediates.is_empty() && action == 'm' {
+//!             self.sgr_commands += 1;
 //!         }
 //!     }
 //! }
 //! let mut parser = Parser::new();
-//! parser.advance(b"\x1b[31mred\x1b[0m", &mut Screen);
+//! let mut counter = Counter::default();
+//! parser.advance(b"\x1b[31mred\x1b[0m", &mut counter);
+//! assert_eq!(counter.characters, 3);
+//! assert_eq!(counter.sgr_commands, 2);
 //! ```
 //!
 //! Control sequence semantics follow `vte 0.15.0` in its bounded, no-std mode:
@@ -408,16 +413,39 @@ impl<const N: usize> Parser<N> {
         if !self.osc_param() {
             self.report_osc_overflow(handler);
         }
-        let mut fields: [&[u8]; MAX_OSC_PARAMS] = [&[]; MAX_OSC_PARAMS];
-        let mut start = 0;
-        for (field, &end) in fields
-            .iter_mut()
-            .zip(&self.osc_ends[..self.osc_count as usize])
-        {
-            *field = &self.osc[start..end];
-            start = end;
+        // Titles and hyperlinks have two/three fields. Sized arrays avoid
+        // initializing the full sixteen-reference scratch array for these cases.
+        let bell = byte == 7;
+        match self.osc_count {
+            1 => handler.osc_dispatch(&[&self.osc[..self.osc_ends[0]]], bell),
+            2 => handler.osc_dispatch(
+                &[
+                    &self.osc[..self.osc_ends[0]],
+                    &self.osc[self.osc_ends[0]..self.osc_ends[1]],
+                ],
+                bell,
+            ),
+            3 => handler.osc_dispatch(
+                &[
+                    &self.osc[..self.osc_ends[0]],
+                    &self.osc[self.osc_ends[0]..self.osc_ends[1]],
+                    &self.osc[self.osc_ends[1]..self.osc_ends[2]],
+                ],
+                bell,
+            ),
+            _ => {
+                let mut fields: [&[u8]; MAX_OSC_PARAMS] = [&[]; MAX_OSC_PARAMS];
+                let mut start = 0;
+                for (field, &end) in fields
+                    .iter_mut()
+                    .zip(&self.osc_ends[..self.osc_count as usize])
+                {
+                    *field = &self.osc[start..end];
+                    start = end;
+                }
+                handler.osc_dispatch(&fields[..self.osc_count as usize], bell);
+            }
         }
-        handler.osc_dispatch(&fields[..self.osc_count as usize], byte == 7);
         self.osc_len = 0;
         self.osc_count = 0;
     }
@@ -432,43 +460,49 @@ impl<const N: usize> Parser<N> {
     }
 
     fn start_utf8<P: Perform + ?Sized>(&mut self, input: &[u8], handler: &mut P) -> usize {
-        let len = scan::escape(input);
-        match core::str::from_utf8(&input[..len]) {
-            Ok(text) => {
-                for c in text.chars() {
-                    Self::decoded(handler, c);
-                }
-                len
-            }
-            Err(error) => {
-                let valid = error.valid_up_to();
-                if let Ok(text) = core::str::from_utf8(&input[..valid]) {
+        let end = scan::escape(input);
+        let mut offset = 0;
+        // Search for ESC once per run. Repeating that search after each bad
+        // codepoint would make long adversarial byte streams quadratic.
+        while offset < end {
+            match core::str::from_utf8(&input[offset..end]) {
+                Ok(text) => {
                     for c in text.chars() {
                         Self::decoded(handler, c);
                     }
+                    return end;
                 }
-                match error.error_len() {
-                    Some(invalid) => {
-                        if invalid == 1 && input[valid] <= 0x9f {
-                            handler.execute(input[valid]);
-                        } else {
-                            handler.print('\u{fffd}');
+                Err(error) => {
+                    let valid = offset + error.valid_up_to();
+                    if let Ok(text) = core::str::from_utf8(&input[offset..valid]) {
+                        for c in text.chars() {
+                            Self::decoded(handler, c);
                         }
-                        valid + invalid
                     }
-                    None if len < input.len() => {
-                        handler.print('\u{fffd}');
-                        len
-                    }
-                    None => {
-                        let partial = len - valid;
-                        self.utf8[..partial].copy_from_slice(&input[valid..len]);
-                        self.utf8_len = partial as u8;
-                        len
+                    match error.error_len() {
+                        Some(invalid) => {
+                            if invalid == 1 && input[valid] <= 0x9f {
+                                handler.execute(input[valid]);
+                            } else {
+                                handler.print('\u{fffd}');
+                            }
+                            offset = valid + invalid;
+                        }
+                        None => {
+                            if end < input.len() {
+                                handler.print('\u{fffd}');
+                            } else {
+                                let partial = end - valid;
+                                self.utf8[..partial].copy_from_slice(&input[valid..end]);
+                                self.utf8_len = partial as u8;
+                            }
+                            return end;
+                        }
                     }
                 }
             }
         }
+        end
     }
 
     fn complete_utf8<P: Perform + ?Sized>(&mut self, input: &[u8], handler: &mut P) -> usize {

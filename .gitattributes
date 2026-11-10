@@ -1,0 +1,2 @@
+# A captured terminal stream is byte data; retain CR/LF on every platform.
+comparison/fixtures/*.ansi -text

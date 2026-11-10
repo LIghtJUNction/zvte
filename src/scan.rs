@@ -1,4 +1,10 @@
-//! Safe word-at-a-time scanning. No alignment or target-feature preconditions.
+//! Safe native-word scanning: 64 bits on x86_64/aarch64, pointer width elsewhere.
+//! No alignment or target-feature preconditions.
+
+const WIDTH: usize = core::mem::size_of::<usize>();
+const ONES: usize = usize::MAX / 255;
+const HIGH: usize = ONES * 0x80;
+const LOW: usize = ONES * 0x7f;
 
 /// Length of the leading printable ASCII run (DEL follows vte's print semantics).
 #[inline]
@@ -6,15 +12,13 @@ pub(crate) fn ascii_run(bytes: &[u8]) -> usize {
     let mut i = 0;
     // One high bit per byte is set for bytes < 0x20 or >= 0x80. Masking before
     // subtraction prevents high-bit bytes from masking a preceding control.
-    const HIGH: u64 = 0x8080_8080_8080_8080;
-    const LOW: u64 = 0x7f7f_7f7f_7f7f_7f7f;
-    const SPACE: u64 = 0x2020_2020_2020_2020;
-    while bytes.len() - i >= 8 {
-        let word = u64::from_ne_bytes(bytes[i..i + 8].try_into().unwrap());
+    const SPACE: usize = ONES * 0x20;
+    while bytes.len() - i >= WIDTH {
+        let word = usize::from_ne_bytes(bytes[i..i + WIDTH].try_into().unwrap());
         if ((word & LOW).wrapping_sub(SPACE) | word) & HIGH != 0 {
             break;
         }
-        i += 8;
+        i += WIDTH;
     }
     while i < bytes.len() && bytes[i].wrapping_sub(0x20) < 0x60 {
         i += 1;
@@ -26,12 +30,12 @@ pub(crate) fn ascii_run(bytes: &[u8]) -> usize {
 #[inline]
 pub(crate) fn escape(bytes: &[u8]) -> usize {
     let mut i = 0;
-    while bytes.len() - i >= 8 {
-        let word = u64::from_ne_bytes(bytes[i..i + 8].try_into().unwrap()) ^ 0x1b1b_1b1b_1b1b_1b1b;
-        if word.wrapping_sub(0x0101_0101_0101_0101) & !word & 0x8080_8080_8080_8080 != 0 {
+    while bytes.len() - i >= WIDTH {
+        let word = usize::from_ne_bytes(bytes[i..i + WIDTH].try_into().unwrap()) ^ (ONES * 0x1b);
+        if word.wrapping_sub(ONES) & !word & HIGH != 0 {
             break;
         }
-        i += 8;
+        i += WIDTH;
     }
     while i < bytes.len() && bytes[i] != 0x1b {
         i += 1;
@@ -43,15 +47,15 @@ pub(crate) fn escape(bytes: &[u8]) -> usize {
 #[inline]
 pub(crate) fn osc_run(bytes: &[u8]) -> usize {
     let mut i = 0;
-    while bytes.len() - i >= 8 {
-        let word = u64::from_ne_bytes(bytes[i..i + 8].try_into().unwrap());
-        let separator = word ^ 0x3b3b_3b3b_3b3b_3b3b;
-        let low = (word & 0x7f7f_7f7f_7f7f_7f7f).wrapping_sub(0x2020_2020_2020_2020) & !word;
-        let semicolon = separator.wrapping_sub(0x0101_0101_0101_0101) & !separator;
-        if (low | semicolon) & 0x8080_8080_8080_8080 != 0 {
+    while bytes.len() - i >= WIDTH {
+        let word = usize::from_ne_bytes(bytes[i..i + WIDTH].try_into().unwrap());
+        let separator = word ^ (ONES * 0x3b);
+        let low = (word & LOW).wrapping_sub(ONES * 0x20) & !word;
+        let semicolon = separator.wrapping_sub(ONES) & !separator;
+        if (low | semicolon) & HIGH != 0 {
             break;
         }
-        i += 8;
+        i += WIDTH;
     }
     while i < bytes.len() && bytes[i] >= 0x20 && bytes[i] != b';' {
         i += 1;
@@ -82,6 +86,13 @@ mod tests {
                         .position(|&b| !(0x20..0x80).contains(&b))
                         .unwrap_or(len);
                     assert_eq!(ascii_run(&input[..len]), expected);
+                    let expected_esc = input[..len].iter().position(|&b| b == 0x1b).unwrap_or(len);
+                    assert_eq!(escape(&input[..len]), expected_esc);
+                    let expected_osc = input[..len]
+                        .iter()
+                        .position(|&b| b < 0x20 || b == b';')
+                        .unwrap_or(len);
+                    assert_eq!(osc_run(&input[..len]), expected_osc);
                 }
             }
         }

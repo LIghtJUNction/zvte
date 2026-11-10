@@ -119,3 +119,25 @@ percentage. A host without a usable PMU must report counters as unavailable.
 Timing alone cannot establish branch prediction performance. The manual
 Benchmark workflow attempts counters and uploads either their output or the
 actual failure.
+
+## Native-word scanner ablation
+
+```sh
+cargo run --release --manifest-path comparison/Cargo.toml --locked --bin scan -- \
+  --samples 7 --ms 25 > scanner.csv 2> scanner-metadata.txt
+```
+
+The `scan` binary imports the actual production `src/scan.rs` directly and
+compares its ASCII, ESC and OSC scans with straightforward scalar byte-position
+loops. Each pair receives the same 16-, 64- or 4,096-byte input: all ASCII, a
+control byte at the end, or a high byte at the end. It verifies each result,
+keeps input/results observable with `black_box`, alternates measurement order,
+and reports median/minimum/maximum ns per input byte and the scalar/native ratio.
+Both implementations use the same default compiler target flags. The production
+path uses `usize` words: eight bytes on x86_64 and aarch64, native pointer width
+elsewhere, with a scalar tail. It requires no optional CPU instruction set.
+
+This experiment measures the scanner contribution only. Its speedups are not
+whole-parser speedups and must not be substituted for the strict callback table.
+The Benchmark workflow runs it on native x86_64 and aarch64 runners and retains
+CSV and machine metadata separately for each architecture.

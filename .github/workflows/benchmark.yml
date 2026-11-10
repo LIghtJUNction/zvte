@@ -43,6 +43,8 @@ jobs:
         run: cargo run --release --manifest-path comparison/Cargo.toml --locked --bin bench -- --mode strict --samples 7 --ms 100 > benchmark-results/strict.csv 2> benchmark-results/strict-metadata.txt
       - name: Batched text benchmark
         run: cargo run --release --manifest-path comparison/Cargo.toml --locked --bin bench -- --mode batch --samples 7 --ms 100 > benchmark-results/batch.csv 2> benchmark-results/batch-metadata.txt
+      - name: Native-word scanner ablation
+        run: cargo run --release --manifest-path comparison/Cargo.toml --locked --bin scan -- --samples 7 --ms 25 > benchmark-results/scanner.csv 2> benchmark-results/scanner-metadata.txt
       - name: Hardware counters when permitted
         shell: bash
         run: |
