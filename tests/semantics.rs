@@ -443,14 +443,12 @@ fn batched_text_has_identical_events_and_excludes_controls() {
         calls: usize,
     }
     impl Perform for Batched {
-        fn text(&mut self, text: &str) {
+        fn text(&mut self, text: &[u8]) {
             assert!(!text.is_empty());
-            assert!(text
-                .chars()
-                .all(|c| !matches!(c, '\0'..='\x1f' | '\u{80}'..='\u{9f}')));
+            assert!(text.iter().all(|&byte| (0x20..=0x7f).contains(&byte)));
             self.calls += 1;
-            for c in text.chars() {
-                self.recorder.print(c);
+            for &byte in text {
+                self.recorder.print(byte as char);
             }
         }
         fn print(&mut self, c: char) {
@@ -704,4 +702,21 @@ fn osc_overflow_is_reported_once_before_dispatch_per_command() {
     assert_eq!(handler.0, ["dispatch"]);
     parser.advance(b"\x1b];;;;;;;;;;;;;;;;\x07", &mut handler);
     assert_eq!(handler.0, ["dispatch", "overflow", "dispatch"]);
+}
+
+#[test]
+fn parameter_equality_ignores_previous_command_storage() {
+    #[derive(Default)]
+    struct Handler(Vec<Params>);
+    impl Perform for Handler {
+        fn csi_dispatch(&mut self, params: &Params, _: &[u8], _: bool, _: char) {
+            self.0.push(params.clone());
+        }
+    }
+    let mut reused = Handler::default();
+    Parser::new().advance(b"\x1b[1:2;3;4m\x1b[7m", &mut reused);
+    let mut fresh = Handler::default();
+    Parser::new().advance(b"\x1b[7m", &mut fresh);
+    assert_eq!(reused.0[1], fresh.0[0]);
+    assert_ne!(reused.0[0], fresh.0[0]);
 }

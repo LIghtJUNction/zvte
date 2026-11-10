@@ -51,7 +51,7 @@ printf '\033[31mred\033[0m\n' | cargo run --example inspect
 | Method | Event |
 | --- | --- |
 | `print(char)` | One printable Unicode scalar |
-| `text(&str)` | A contiguous printable ASCII run; defaults to calling `print` for each character |
+| `text(&[u8])` | A contiguous printable ASCII run; defaults to calling `print` for each byte |
 | `execute(u8)` | A C0 or C1 control |
 | `esc_dispatch` | ESC final byte and intermediates |
 | `csi_dispatch` | CSI parameters, subparameters, intermediates and final byte |
@@ -87,11 +87,13 @@ pins the registry version and lockfile. Semantics include:
   discarded and parsing resynchronizes. Invalid UTF-8 uses replacement characters
   without losing following controls. Truncation waits for the next chunk.
 
-**One intentional correction:** `vte 0.15.0` reports UTF-8-encoded C1 as `print`
-when its two bytes span input calls, but as `execute` in a single call. `zvte`
-consistently uses `execute`. A dedicated regression test records both behaviors;
-random differential tests allow only this named oracle defect. Timed fixtures
-require exact callback/event equality without normalization. `text`,
+**Two chunk-boundary corrections:** `vte 0.15.0` reports UTF-8-encoded C1 as `print`
+when its two bytes span input calls, but as `execute` in a single call. It can also
+drop an ASCII byte following a completed partial UTF-8 scalar. `zvte` consistently
+uses `execute` for C1 and preserves every text character. Dedicated regressions
+record both reference defects. Random differential tests compare whole-input
+`vte` events with whole and randomly chunked `zvte` events, with no normalization.
+Timed fixtures require exact callback/event equality with identical chunks. `text`,
 `osc_overflow`, `finish`, and `reset` are additional APIs.
 
 The core forbids unsafe code. Validated word-at-a-time ASCII scanning uses ordinary
@@ -130,7 +132,8 @@ Store the crates.io token in the repository secret **`CARGO_REGISTRY_TOKEN`**.
 The workflow runs the complete CI gate, validates the selected version and package,
 runs `cargo publish --dry-run`, pushes a version commit when needed, publishes to
 crates.io, creates the matching version tag and creates a GitHub Release with the
-`.crate` archive. All steps run in the same trusted manual workflow. PRs cannot
+`.crate` archive. A `Cargo.toml` change pushed to `main` also runs this workflow
+to publish the current version. All steps run in the same trusted workflow. PRs cannot
 publish, and releases do not depend on a bot-created tag triggering another workflow.
 
 If publication stops after the version commit is pushed, run a new workflow from

@@ -7,7 +7,7 @@ pub const MAX_PARAMS: usize = 32;
 ///
 /// `38:2::255:0:0;1` is exposed as `[38, 2, 0, 255, 0, 0]`, then `[1]`.
 /// Empty fields are zero. Decimal values saturate at [`u16::MAX`].
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Eq)]
 pub struct Params {
     values: [u16; MAX_PARAMS],
     groups: [u8; MAX_PARAMS],
@@ -76,6 +76,12 @@ impl Params {
 impl Default for Params {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl PartialEq for Params {
+    fn eq(&self, other: &Self) -> bool {
+        self.iter().eq(other.iter())
     }
 }
 

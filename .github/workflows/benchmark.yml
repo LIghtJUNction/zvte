@@ -1,0 +1,62 @@
+name: Benchmark
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - src/**
+      - comparison/**
+      - .github/workflows/benchmark.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: benchmark-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  benchmark:
+    name: Benchmark / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - name: Capture compiler and hardware
+        run: |
+          mkdir -p benchmark-results
+          rustc -Vv > benchmark-results/environment.txt
+          uname -a >> benchmark-results/environment.txt
+          lscpu >> benchmark-results/environment.txt
+          git rev-parse HEAD >> benchmark-results/environment.txt
+      - name: Verify all differential events
+        run: cargo test --release --manifest-path comparison/Cargo.toml --locked
+      - name: Same-callback benchmark
+        run: cargo run --release --manifest-path comparison/Cargo.toml --locked --bin bench -- --mode strict --samples 7 --ms 100 > benchmark-results/strict.csv 2> benchmark-results/strict-metadata.txt
+      - name: Batched text benchmark
+        run: cargo run --release --manifest-path comparison/Cargo.toml --locked --bin bench -- --mode batch --samples 7 --ms 100 > benchmark-results/batch.csv 2> benchmark-results/batch-metadata.txt
+      - name: Hardware counters when permitted
+        shell: bash
+        run: |
+          if command -v perf >/dev/null && perf stat -e cycles,instructions,branches,branch-misses -- true 2>benchmark-results/perf-capability.txt; then
+            for workload in ascii csi osc color-log short-chunks one-byte dcs unicode recording malformed truncated; do
+              for engine in zvte vte; do
+                perf stat -r 3 -x, -e cycles,instructions,branches,branch-misses -o "benchmark-results/perf-$workload-$engine.csv" -- comparison/target/release/bench --mode strict --engine "$engine" --filter "$workload" --perf-iterations 4096 > "benchmark-results/perf-work-$workload-$engine.csv"
+              done
+            done
+          else
+            echo 'Hardware counters unavailable on this runner; see perf-capability.txt.' >> benchmark-results/perf-capability.txt
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: benchmark-${{ matrix.os }}
+          path: benchmark-results/
+          if-no-files-found: error

@@ -1,0 +1,443 @@
+[1mdiff --git a/src/lib.rs b/src/lib.rs[m
+[1mnew file mode 100644[m
+[1mindex 0000000..26fbf31[m
+[1m--- /dev/null[m
+[1m+++ b/src/lib.rs[m
+[36m@@ -0,0 +1,436 @@[m
+[32m+[m[32m//! Zero-dependency, allocation-free ANSI/VT terminal parsing.[m
+[32m+[m[32m//![m
+[32m+[m[32m//! Feed arbitrary byte chunks to [`Parser::advance`]. Implement [`Perform`] to[m
+[32m+[m[32m//! consume decoded text and control sequences; override [`Perform::text`] to[m
+[32m+[m[32m//! receive contiguous printable ASCII in batches. The default implementation[m
+[32m+[m[32m//! preserves one [`Perform::print`] callback per character.[m
+[32m+[m[32m//![m
+[32m+[m[32m//! ```[m
+[32m+[m[32m//! use zvte::{Parser, Perform, Params};[m
+[32m+[m[32m//![m
+[32m+[m[32m//! struct Screen;[m
+[32m+[m[32m//! impl Perform for Screen {[m
+[32m+[m[32m//!     fn print(&mut self, c: char) { /* draw c */ let _ = c; }[m
+[32m+[m[32m//!     fn csi_dispatch(&mut self, p: &Params, i: &[u8], ignore: bool, action: char) {[m
+[32m+[m[32m//!         if !ignore && i.is_empty() && action == 'm' {[m
+[32m+[m[32m//!             for parameter in p { let _ = parameter; /* apply SGR */ }[m
+[32m+[m[32m//!         }[m
+[32m+[m[32m//!     }[m
+[32m+[m[32m//! }[m
+[32m+[m[32m//! let mut parser = Parser::new();[m
+[32m+[m[32m//! parser.advance(b"\x1b[31mred\x1b[0m", &mut Screen);[m
+[32m+[m[32m//! ```[m
+[32m+[m[32m//![m
+[32m+[m[32m//! Control sequence semantics follow `vte 0.15.0` in its bounded, no-std mode:[m
+[32m+[m[32m//! 32 numeric entries, two intermediate bytes, 16 OSC fields, UTF-8 text and[m
+[32m+[m[32m//! seven-bit sequence introducers. Raw C1 bytes in text are executed. See the[m
+[32m+[m[32m//! README for EOF behavior, capacity limits and the split UTF-8 C1 correction.[m
+[32m+[m[32m#![no_std][m
+[32m+[m[32m#![forbid(unsafe_code)][m
+[32m+[m[32m#![deny(missing_docs)][m
+[32m+[m
+[32m+[m[32mmod params;[m
+[32m+[m[32mmod scan;[m
+[32m+[m[32mmod state;[m
+[32m+[m
+[32m+[m[32mpub use params::{Params, ParamsIter, MAX_PARAMS};[m
+[32m+[m[32muse state::*;[m
+[32m+[m
+[32m+[m[32m/// Default number of stored OSC payload bytes (separators consume no space).[m
+[32m+[m[32mpub const DEFAULT_OSC_CAPACITY: usize = 1024;[m
+[32m+[m[32m/// Maximum number of semicolon-separated OSC fields passed to the handler.[m
+[32m+[m[32mpub const MAX_OSC_PARAMS: usize = 16;[m
+[32m+[m[32m/// Maximum number of stored private-marker and intermediate bytes.[m
+[32m+[m[32mpub const MAX_INTERMEDIATES: usize = 2;[m
+[32m+[m
+[32m+[m[32m/// Incremental ANSI/VT parser with all state and storage held inline.[m
+[32m+[m[32m///[m
+[32m+[m[32m/// `N` is the OSC payload capacity. Use [`Parser::new_with_size`] to customize[m
+[32m+[m[32m/// it, including zero on memory-constrained targets. Overflowing numeric[m
+[32m+[m[32m/// parameters/intermediates set the dispatch `ignore` flag; overflowing OSC[m
+[32m+[m[32m/// data is truncated, with [`Perform::osc_overflow`] called once per command.[m
+[32m+[m[32m///[m
+[32m+[m[32m/// A parser can be moved between threads; one byte stream requires one parser.[m
+[32m+[m[32m/// Handler panics propagate normally. Parser operations themselves do not panic[m
+[32m+[m[32m/// for any byte input. No allocation, global mutable state or unsafe code is used.[m
+[32m+[m[32m#[derive(Clone)][m
+[32m+[m[32mpub struct Parser<const N: usize = DEFAULT_OSC_CAPACITY> {[m
+[32m+[m[32m    osc: [u8; N],[m
+[32m+[m[32m    osc_ends: [usize; MAX_OSC_PARAMS],[m
+[32m+[m[32m    osc_len: usize,[m
+[32m+[m[32m    params: Params,[m
+[32m+[m[32m    param: u16,[m
+[32m+[m[32m    utf8: [u8; 4],[m
+[32m+[m[32m    intermediates: [u8; MAX_INTERMEDIATES],[m
+[32m+[m[32m    state: u8,[m
+[32m+[m[32m    intermediate_len: u8,[m
+[32m+[m[32m    osc_count: u8,[m
+[32m+[m[32m    utf8_len: u8,[m
+[32m+[m[32m    ignoring: bool,[m
+[32m+[m[32m    osc_overflow: bool,[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mimpl Parser {[m
+[32m+[m[32m    /// Create a parser with a 1024-byte inline OSC buffer.[m
+[32m+[m[32m    pub const fn new() -> Self {[m
+[32m+[m[32m        Self::new_with_size()[m
+[32m+[m[32m    }[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mimpl<const N: usize> Default for Parser<N> {[m
+[32m+[m[32m    fn default() -> Self {[m
+[32m+[m[32m        Self::new_with_size()[m
+[32m+[m[32m    }[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mimpl<const N: usize> Parser<N> {[m
+[32m+[m[32m    /// Create a parser with an explicit inline OSC payload capacity.[m
+[32m+[m[32m    pub const fn new_with_size() -> Self {[m
+[32m+[m[32m        Self {[m
+[32m+[m[32m            osc: [0; N],[m
+[32m+[m[32m            osc_ends: [0; MAX_OSC_PARAMS],[m
+[32m+[m[32m            osc_len: 0,[m
+[32m+[m[32m            params: Params::new(),[m
+[32m+[m[32m            param: 0,[m
+[32m+[m[32m            utf8: [0; 4],[m
+[32m+[m[32m            intermediates: [0; MAX_INTERMEDIATES],[m
+[32m+[m[32m            state: GROUND,[m
+[32m+[m[32m            intermediate_len: 0,[m
+[32m+[m[32m            osc_count: 0,[m
+[32m+[m[32m            utf8_len: 0,[m
+[32m+[m[32m            ignoring: false,[m
+[32m+[m[32m            osc_overflow: false,[m
+[32m+[m[32m        }[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    /// Whether no control sequence or partial UTF-8 codepoint is pending.[m
+[32m+[m[32m    #[inline][m
+[32m+[m[32m    pub const fn is_ground(&self) -> bool {[m
+[32m+[m[32m        self.state == GROUND && self.utf8_len == 0[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    /// Discard all pending input without issuing callbacks or clearing storage.[m
+[32m+[m[32m    pub fn reset(&mut self) {[m
+[32m+[m[32m        self.state = GROUND;[m
+[32m+[m[32m        self.utf8_len = 0;[m
+[32m+[m[32m        self.osc_len = 0;[m
+[32m+[m[32m        self.osc_count = 0;[m
+[32m+[m[32m        self.osc_overflow = false;[m
+[32m+[m[32m        self.clear_params();[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    /// Finish a stream: replace incomplete UTF-8, unhook an active DCS, then reset.[m
+[32m+[m[32m    ///[m
+[32m+[m[32m    /// Incomplete ESC/CSI/OSC commands are discarded. Ordinary chunk boundaries[m
+[32m+[m[32m    /// must use [`Self::advance`] without calling this method. Repeated calls[m
+[32m+[m[32m    /// without intervening input have no effect.[m
+[32m+[m[32m    pub fn finish<P: Perform + ?Sized>(&mut self, handler: &mut P) {[m
+[32m+[m[32m        if self.utf8_len != 0 {[m
+[32m+[m[32m            handler.print('\u{fffd}');[m
+[32m+[m[32m        }[m
+[32m+[m[32m        if self.state == DCS_DATA {[m
+[32m+[m[32m            handler.unhook();[m
+[32m+[m[32m        }[m
+[32m+[m[32m        self.reset();[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    /// Parse a chunk, preserving incomplete sequences for the next call.[m
+[32m+[m[32m    ///[m
+[32m+[m[32m    /// Empty input is a no-op. Callbacks borrow parser/input storage only for[m
+[32m+[m[32m    /// the duration of the call. Batch boundaries depend on the input chunks;[m
+[32m+[m[32m    /// the expanded character/control event stream does not.[m
+[32m+[m[32m    #[inline][m
+[32m+[m[32m    pub fn advance<P: Perform + ?Sized>(&mut self, input: &[u8], handler: &mut P) {[m
+[32m+[m[32m        let mut i = 0;[m
+[32m+[m[32m        while i < input.len() {[m
+[32m+[m[32m            if self.state == GROUND {[m
+[32m+[m[32m                if self.utf8_len != 0 {[m
+[32m+[m[32m                    i += self.complete_utf8(&input[i..], handler);[m
+[32m+[m[32m                    continue;[m
+[32m+[m[32m                }[m
+[32m+[m[32m                let run = scan::ascii_run(&input[i..]);[m
+[32m+[m[32m                if run != 0 {[m
+[32m+[m[32m                    // Validation is safe and optimized to word operations by core.[m
+[32m+[m[32m                    // Keep it explicit so the crate never needs unsafe UTF-8 casts.[m
+[32m+[m[32m                    if let Ok(text) = core::str::from_utf8(&input[i..i + run]) {[m
+[32m+[m[32m                        handler.text(text);[m
+[32m+[m[32m                    }[m
+[32m+[m[32m                    i += run;[m
+[32m+[m[32m                    continue;[m
+[32m+[m[32m                }[m
+[32m+[m[32m                let byte = input[i];[m
+[32m+[m[32m                if byte == 0x1b {[m
+[32m+[m[32m                    self.clear_params();[m
+[32m+[m[32m                    self.state = ESCAPE;[m
+[32m+[m[32m                    i += 1;[m
+[32m+[m[32m                } else if byte < 0x20 || (0x80..=0x9f).contains(&byte) {[m
+[32m+[m[32m                    handler.execute(byte);[m
+[32m+[m[32m                    i += 1;[m
+[32m+[m[32m                } else {[m
+[32m+[m[32m                    i += self.start_utf8(&input[i..], handler);[m
+[32m+[m[32m                }[m
+[32m+[m[32m            } else {[m
+[32m+[m[32m                let byte = input[i];[m
+[32m+[m[32m                self.step(byte, handler);[m
+[32m+[m[32m                i += 1;[m
+[32m+[m[32m            }[m
+[32m+[m[32m        }[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    #[inline][m
+[32m+[m[32m    fn clear_params(&mut self) {[m
+[32m+[m[32m        self.params.clear();[m
+[32m+[m[32m        self.param = 0;[m
+[32m+[m[32m        self.intermediate_len = 0;[m
+[32m+[m[32m        self.ignoring = false;[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    #[inline][m
+[32m+[m[32m    fn step<P: Perform + ?Sized>(&mut self, byte: u8, handler: &mut P) {[m
+[32m+[m[32m        let transition = TRANSITIONS[self.state as usize][byte as usize];[m
+[32m+[m[32m        self.state = (transition & 15) as u8;[m
+[32m+[m[32m        match (transition >> 4) as u8 {[m
+[32m+[m[32m            IGNORE => {}[m
+[32m+[m[32m            EXECUTE => handler.execute(byte),[m
+[32m+[m[32m            COLLECT => {[m
+[32m+[m[32m                if (self.intermediate_len as usize) < MAX_INTERMEDIATES {[m
+[32m+[m[32m                    self.intermediates[self.intermediate_len as usize] = byte;[m
+[32m+[m[32m                    self.intermediate_len += 1;[m
+[32m+[m[32m                } else {[m
+[32m+[m[32m                    self.ignoring = true;[m
+[32m+[m[32m                }[m
+[32m+[m[32m            }[m
+[32m+[m[32m            DIGIT => {[m
+[32m+[m[32m                if self.params.full() {[m
+[32m+[m[32m                    self.ignoring = true;[m
+[32m+[m[32m                } else {[m
+[32m+[m[32m                    self.param =[m
+[32m+[m[32m                        (self.param as u32 * 10 + (byte - b'0') as u32).min(u16::MAX as u32) as u16;[m
+[32m+[m[32m                }[m
+[32m+[m[32m            }[m
+[32m+[m[32m            PARAM | SUBPARAM => {[m
+[32m+[m[32m                if self[m
+[32m+[m[32m                    .params[m
+[32m+[m[32m                    .push(self.param, (transition >> 4) as u8 == SUBPARAM)[m
+[32m+[m[32m                {[m
+[32m+[m[32m                    self.param = 0;[m
+[32m+[m[32m                } else {[m
+[32m+[m[32m                    self.ignoring = true;[m
+[32m+[m[32m                }[m
+[32m+[m[32m            }[m
+[32m+[m[32m            ESC_DISPATCH => handler.esc_dispatch([m
+[32m+[m[32m                &self.intermediates[..self.intermediate_len as usize],[m
+[32m+[m[32m                self.ignoring,[m
+[32m+[m[32m                byte,[m
+[32m+[m[32m            ),[m
+[32m+[m[32m            CSI_DISPATCH | HOOK => {[m
+[32m+[m[32m                if !self.params.push(self.param, false) {[m
+[32m+[m[32m                    self.ignoring = true;[m
+[32m+[m[32m                }[m
+[32m+[m[32m                let intermediates = &self.intermediates[..self.intermediate_len as usize];[m
+[32m+[m[32m                if (transition >> 4) as u8 == HOOK {[m
+[32m+[m[32m                    handler.hook(&self.params, intermediates, self.ignoring, byte as char);[m
+[32m+[m[32m                } else {[m
+[32m+[m[32m                    handler.csi_dispatch(&self.params, intermediates, self.ignoring, byte as char);[m
+[32m+[m[32m                }[m
+[32m+[m[32m            }[m
+[32m+[m[32m            PUT => handler.put(byte),[m
+[32m+[m[32m            UNHOOK => handler.unhook(),[m
+[32m+[m[32m            UNHOOK_EXECUTE => {[m
+[32m+[m[32m                handler.unhook();[m
+[32m+[m[32m                handler.execute(byte);[m
+[32m+[m[32m            }[m
+[32m+[m[32m            UNHOOK_CLEAR => {[m
+[32m+[m[32m                handler.unhook();[m
+[32m+[m[32m                self.clear_params();[m
+[32m+[m[32m            }[m
+[32m+[m[32m            OSC_END => self.osc_end(byte, handler),[m
+[32m+[m[32m            OSC_EXECUTE => {[m
+[32m+[m[32m                self.osc_end(byte, handler);[m
+[32m+[m[32m                handler.execute(byte);[m
+[32m+[m[32m            }[m
+[32m+[m[32m            OSC_CLEAR => {[m
+[32m+[m[32m                self.osc_end(byte, handler);[m
+[32m+[m[32m                self.clear_params();[m
+[32m+[m[32m            }[m
+[32m+[m[32m            OSC_PUT => {[m
+[32m+[m[32m                if self.osc_len < N {[m
+[32m+[m[32m                    self.osc[self.osc_len] = byte;[m
+[32m+[m[32m                    self.osc_len += 1;[m
+[32m+[m[32m                } else {[m
+[32m+[m[32m                    self.report_osc_overflow(handler);[m
+[32m+[m[32m                }[m
+[32m+[m[32m            }[m
+[32m+[m[32m            OSC_PARAM => {[m
+[32m+[m[32m                if self.osc_len < N {[m
+[32m+[m[32m                    if !self.osc_param() {[m
+[32m+[m[32m                        self.report_osc_overflow(handler);[m
+[32m+[m[32m                    }[m
+[32m+[m[32m                } else {[m
+[32m+[m[32m                    self.report_osc_overflow(handler);[m
+[32m+[m[32m                }[m
+[32m+[m[32m            }[m
+[32m+[m[32m            CLEAR => self.clear_params(),[m
+[32m+[m[32m            OSC_START => {[m
+[32m+[m[32m                self.osc_len = 0;[m
+[32m+[m[32m                self.osc_count = 0;[m
+[32m+[m[32m                self.osc_overflow = false;[m
+[32m+[m[32m            }[m
+[32m+[m[32m            _ => {}[m
+[32m+[m[32m        }[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    #[inline][m
+[32m+[m[32m    fn report_osc_overflow<P: Perform + ?Sized>(&mut self, handler: &mut P) {[m
+[32m+[m[32m        if !self.osc_overflow {[m
+[32m+[m[32m            self.osc_overflow = true;[m
+[32m+[m[32m            handler.osc_overflow();[m
+[32m+[m[32m        }[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    #[inline][m
+[32m+[m[32m    fn osc_param(&mut self) -> bool {[m
+[32m+[m[32m        if self.osc_count as usize == MAX_OSC_PARAMS {[m
+[32m+[m[32m            return false;[m
+[32m+[m[32m        }[m
+[32m+[m[32m        self.osc_ends[self.osc_count as usize] = self.osc_len;[m
+[32m+[m[32m        self.osc_count += 1;[m
+[32m+[m[32m        true[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    fn osc_end<P: Perform + ?Sized>(&mut self, byte: u8, handler: &mut P) {[m
+[32m+[m[32m        // Like vte, finalize the last field even when the payload buffer is full.[m
+[32m+[m[32m        if !self.osc_param() {[m
+[32m+[m[32m            self.report_osc_overflow(handler);[m
+[32m+[m[32m        }[m
+[32m+[m[32m        let mut fields: [&[u8]; MAX_OSC_PARAMS] = [&[]; MAX_OSC_PARAMS];[m
+[32m+[m[32m        let mut start = 0;[m
+[32m+[m[32m        for (field, &end) in fields[m
+[32m+[m[32m            .iter_mut()[m
+[32m+[m[32m            .zip(&self.osc_ends[..self.osc_count as usize])[m
+[32m+[m[32m        {[m
+[32m+[m[32m            *field = &self.osc[start..end];[m
+[32m+[m[32m            start = end;[m
+[32m+[m[32m        }[m
+[32m+[m[32m        handler.osc_dispatch(&fields[..self.osc_count as usize], byte == 7);[m
+[32m+[m[32m        self.osc_len = 0;[m
+[32m+[m[32m        self.osc_count = 0;[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    #[inline][m
+[32m+[m[32m    fn decoded<P: Perform + ?Sized>(handler: &mut P, c: char) {[m
+[32m+[m[32m        if ('\u{80}'..='\u{9f}').contains(&c) {[m
+[32m+[m[32m            handler.execute(c as u8);[m
+[32m+[m[32m        } else {[m
+[32m+[m[32m            handler.print(c);[m
+[32m+[m[32m        }[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    fn start_utf8<P: Perform + ?Sized>(&mut self, input: &[u8], handler: &mut P) -> usize {[m
+[32m+[m[32m        let width = match input[0] {[m
+[32m+[m[32m            0xc2..=0xdf => 2,[m
+[32m+[m[32m            0xe0..=0xef => 3,[m
+[32m+[m[32m            0xf0..=0xf4 => 4,[m
+[32m+[m[32m            _ => 1,[m
+[32m+[m[32m        };[m
+[32m+[m[32m        let len = input.len().min(width);[m
+[32m+[m[32m        match core::str::from_utf8(&input[..len]) {[m
+[32m+[m[32m            Ok(text) => {[m
+[32m+[m[32m                if let Some(c) = text.chars().next() {[m
+[32m+[m[32m                    Self::decoded(handler, c);[m
+[32m+[m[32m                }[m
+[32m+[m[32m                len[m
+[32m+[m[32m            }[m
+[32m+[m[32m            Err(error) => match error.error_len() {[m
+[32m+[m[32m                Some(invalid) => {[m
+[32m+[m[32m                    handler.print('\u{fffd}');[m
+[32m+[m[32m                    invalid[m
+[32m+[m[32m                }[m
+[32m+[m[32m                None => {[m
+[32m+[m[32m                    self.utf8[..len].copy_from_slice(&input[..len]);[m
+[32m+[m[32m                    self.utf8_len = len as u8;[m
+[32m+[m[32m                    len[m
+[32m+[m[32m                }[m
+[32m+[m[32m            },[m
+[32m+[m[32m        }[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    fn complete_utf8<P: Perform + ?Sized>(&mut self, input: &[u8], handler: &mut P) -> usize {[m
+[32m+[m[32m        let old = self.utf8_len as usize;[m
+[32m+[m[32m        let width = match self.utf8[0] {[m
+[32m+[m[32m            0xc2..=0xdf => 2,[m
+[32m+[m[32m            0xe0..=0xef => 3,[m
+[32m+[m[32m            _ => 4,[m
+[32m+[m[32m        };[m
+[32m+[m[32m        let take = input.len().min(width - old);[m
+[32m+[m[32m        self.utf8[old..old + take].copy_from_slice(&input[..take]);[m
+[32m+[m[32m        match core::str::from_utf8(&self.utf8[..old + take]) {[m
+[32m+[m[32m            Ok(text) => {[m
+[32m+[m[32m                if let Some(c) = text.chars().next() {[m
+[32m+[m[32m                    Self::decoded(handler, c);[m
+[32m+[m[32m                }[m
+[32m+[m[32m                self.utf8_len = 0;[m
+[32m+[m[32m                take[m
+[32m+[m[32m            }[m
+[32m+[m[32m            Err(error) => match error.error_len() {[m
+[32m+[m[32m                Some(invalid) => {[m
+[32m+[m[32m                    self.utf8_len = 0;[m
+[32m+[m[32m                    handler.print('\u{fffd}');[m
+[32m+[m[32m                    invalid.saturating_sub(old)[m
+[32m+[m[32m                }[m
+[32m+[m[32m                None => {[m
+[32m+[m[32m                    self.utf8_len = (old + take) as u8;[m
+[32m+[m[32m                    take[m
+[32m+[m[32m                }[m
+[32m+[m[32m            },[m
+[32m+[m[32m        }[m
+[32m+[m[32m    }[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32m/// Consumer of terminal parsing events. Unimplemented methods discard events.[m
+[32m+[m[32m///[m
+[32m+[m[32m/// With the exception of `text` and `osc_overflow`, callback names and arguments[m
+[32m+[m[32m/// mirror `vte::Perform`. No allocation is required to implement this trait.[m
+[32m+[m[32mpub trait Perform {[m
+[32m+[m[32m    /// One decoded printable Unicode scalar, including DEL.[m
+[32m+[m[32m    fn print(&mut self, _c: char) {}[m
+[32m+[m[32m    /// A run of printable ASCII. Defaults to one [`Self::print`] per character.[m
+[32m+[m[32m    ///[m
+[32m+[m[32m    /// Overriding this method reduces callback overhead; preserve order relative[m
+[32m+[m[32m    /// to all other callbacks. Call boundaries are not part of text semantics.[m
+[32m+[m[32m    #[inline][m
+[32m+[m[32m    fn text(&mut self, text: &str) {[m
+[32m+[m[32m        for byte in text.bytes() {[m
+[32m+[m[32m            self.print(byte as char);[m
+[32m+[m[32m        }[m
+[32m+[m[32m    }[m
+[32m+[m[32m    /// Execute a C0 or C1 control byte.[m
+[32m+[m[32m    fn execute(&mut self, _byte: u8) {}[m
+[32m+[m[32m    /// Complete ESC command. `ignore` signals intermediate overflow.[m
+[32m+[m[32m    fn esc_dispatch(&mut self, _intermediates: &[u8], _ignore: bool, _byte: u8) {}[m
+[32m+[m[32m    /// Complete CSI command. `ignore` signals parameter/intermediate overflow.[m
+[32m+[m[32m    fn csi_dispatch([m
+[32m+[m[32m        &mut self,[m
+[32m+[m[32m        _params: &Params,[m
+[32m+[m[32m        _intermediates: &[u8],[m
+[32m+[m[32m        _ignore: bool,[m
+[32m+[m[32m        _action: char,[m
+[32m+[m[32m    ) {[m
+[32m+[m[32m    }[m
+[32m+[m[32m    /// Start DCS data after its final header byte, with parsed parameters.[m
+[32m+[m[32m    fn hook(&mut self, _params: &Params, _intermediates: &[u8], _ignore: bool, _action: char) {}[m
+[32m+[m[32m    /// One DCS data byte; DEL and high bytes other than ST are ignored.[m
+[32m+[m[32m    fn put(&mut self, _byte: u8) {}[m
+[32m+[m[32m    /// End or cancel the active DCS data stream.[m
+[32m+[m[32m    fn unhook(&mut self) {}[m
+[32m+[m[32m    /// Complete OSC command. `bell_terminated` is true only for BEL termination.[m
+[32m+[m[32m    ///[m
+[32m+[m[32m    /// ESC ends the OSC immediately; a following `\\` is a separate ESC event.[m
+[32m+[m[32m    /// CAN/SUB also dispatch OSC before their execute callback, matching vte.[m
+[32m+[m[32m    fn osc_dispatch(&mut self, _params: &[&[u8]], _bell_terminated: bool) {}[m
+[32m+[m[32m    /// OSC storage or field capacity was exceeded, once per OSC command.[m
+[32m+[m[32m    ///[m
+[32m+[m[32m    /// The eventual dispatch contains the bounded prefix. This extra callback[m
+[32m+[m[32m    /// makes truncation observable without changing vte-compatible dispatches.[m
+[32m+[m[32m    fn osc_overflow(&mut self) {}[m
+[32m+[m[32m}[m
+rustc 1.99.1 (58cf8f9c3 2026-10-13)

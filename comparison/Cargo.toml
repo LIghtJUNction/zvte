@@ -1,0 +1,20 @@
+[package]
+name = "zvte-comparison"
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.74"
+publish = false
+
+[workspace]
+
+[dependencies]
+zvte = { path = ".." }
+vte = { version = "=0.15.0", default-features = false }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+[[bin]]
+name = "bench"
+path = "src/main.rs"

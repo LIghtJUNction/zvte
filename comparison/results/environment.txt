@@ -1,0 +1,45 @@
+zvte benchmark environment and hardware-counter availability
+Captured at UTC: 2026-11-10T03:52:46.487050+00:00
+
+Architecture: x86_64
+CPU reported by /proc/cpuinfo: INTEL(R) XEON(R) PLATINUM 8573C
+CPU vendor/family/model/stepping: GenuineIntel / 6 / 207 / 2
+Logical CPUs exposed: 9
+Allowed CPU affinity: 0,1,2,3,4,5,6,7,8
+Kernel: Linux 6.18.57
+Userspace: glibc 2.41
+User ID: 1000
+perf_event_paranoid: 2
+kptr_restrict: 0
+perf command: unavailable
+valgrind command: unavailable
+approved cloud-agent-packages helper: unavailable
+
+Compiler:
+rustc 1.99.1 (58cf8f9c3 2026-10-13)
+binary: rustc
+commit-hash: 58cf8f9c35b355199727627d07ae34a4e2846d67
+commit-date: 2026-10-13
+host: x86_64-unknown-linux-gnu
+release: 1.99.1
+LLVM version: 23.1.1
+
+Hardware probe (no benchmark timing and no system setting changes):
+- Native Linux perf_event_open syscall 298 via Python ctypes.
+- perf_event_attr size 64 (PERF_ATTR_SIZE_VER0).
+- Own calling thread (pid=0), any CPU (cpu=-1), no group (group_fd=-1).
+- Disabled at creation; excludes kernel and hypervisor; FD_CLOEXEC flag.
+- PERF_TYPE_HARDWARE / PERF_COUNT_HW_CPU_CYCLES (0/0): -1, errno 2 ENOENT.
+- PERF_TYPE_HARDWARE / PERF_COUNT_HW_INSTRUCTIONS (0/1): -1, errno 2 ENOENT.
+- PERF_TYPE_HARDWARE / PERF_COUNT_HW_BRANCH_INSTRUCTIONS (0/4): -1, errno 2 ENOENT.
+- PERF_TYPE_HARDWARE / PERF_COUNT_HW_BRANCH_MISSES (0/5): -1, errno 2 ENOENT.
+- PERF_TYPE_SOFTWARE / PERF_COUNT_SW_CPU_CLOCK (1/0): successfully opened;
+  descriptor closed without enabling measurement.
+
+Result: hardware branch/cycle/instruction counters are unavailable in this
+executor. The successful software counter confirms that perf_event_open itself
+can be used; ENOENT affects the requested hardware PMU events. No hardware
+branch-miss rate was measured, inferred from timing, or replaced by a simulator.
+Use the isolated --perf-iterations worker documented in comparison/README.md on
+a host exposing the requested PMU counters. CI uploads its own counter result
+or exact failure, independently of this local observation.

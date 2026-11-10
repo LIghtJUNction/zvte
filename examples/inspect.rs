@@ -5,8 +5,8 @@ use zvte::{Params, Parser, Perform};
 struct Inspector;
 
 impl Perform for Inspector {
-    fn text(&mut self, text: &str) {
-        println!("text {text:?}");
+    fn text(&mut self, text: &[u8]) {
+        println!("text {:?}", String::from_utf8_lossy(text));
     }
 
     fn print(&mut self, c: char) {

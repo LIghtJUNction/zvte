@@ -46,8 +46,8 @@ pub const MAX_INTERMEDIATES: usize = 2;
 /// Incremental ANSI/VT parser with all state and storage held inline.
 ///
 /// `N` is the OSC payload capacity. Use [`Parser::new_with_size`] to customize
-/// it, including zero on memory-constrained targets. Overflowing numeric
-/// parameters/intermediates set the dispatch `ignore` flag; overflowing OSC
+/// it, including zero on memory-constrained targets. Exceeding parameter or
+/// intermediate capacity sets the dispatch `ignore` flag; overflowing OSC
 /// data is truncated, with [`Perform::osc_overflow`] called once per command.
 ///
 /// A parser can be moved between threads; one byte stream requires one parser.
@@ -150,11 +150,7 @@ impl<const N: usize> Parser<N> {
                 }
                 let run = scan::ascii_run(&input[i..]);
                 if run != 0 {
-                    // Validation is safe and optimized to word operations by core.
-                    // Keep it explicit so the crate never needs unsafe UTF-8 casts.
-                    if let Ok(text) = core::str::from_utf8(&input[i..i + run]) {
-                        handler.text(text);
-                    }
+                    handler.text(&input[i..i + run]);
                     i += run;
                     continue;
                 }
@@ -163,11 +159,58 @@ impl<const N: usize> Parser<N> {
                     self.clear_params();
                     self.state = ESCAPE;
                     i += 1;
+                    match input.get(i) {
+                        Some(b'[') => {
+                            self.state = CSI_ENTRY;
+                            i += 1;
+                        }
+                        Some(b']') => {
+                            self.state = OSC;
+                            self.osc_len = 0;
+                            self.osc_count = 0;
+                            self.osc_overflow = false;
+                            i += 1;
+                        }
+                        Some(b'P') => {
+                            self.state = DCS_ENTRY;
+                            i += 1;
+                        }
+                        _ => {}
+                    }
                 } else if byte < 0x20 || (0x80..=0x9f).contains(&byte) {
                     handler.execute(byte);
                     i += 1;
                 } else {
                     i += self.start_utf8(&input[i..], handler);
+                }
+            } else if self.state == OSC {
+                let run = scan::osc_run(&input[i..]);
+                if run != 0 {
+                    let stored = run.min(N - self.osc_len);
+                    self.osc[self.osc_len..self.osc_len + stored]
+                        .copy_from_slice(&input[i..i + stored]);
+                    self.osc_len += stored;
+                    if stored != run {
+                        self.report_osc_overflow(handler);
+                    }
+                    i += run;
+                } else {
+                    self.step(input[i], handler);
+                    i += 1;
+                }
+            } else if matches!(self.state, CSI_ENTRY | CSI_PARAM | DCS_ENTRY | DCS_PARAM) {
+                i += self.header(&input[i..], handler);
+            } else if self.state == DCS_DATA {
+                let start = i;
+                while i < input.len() && matches!(input[i], 0x00..=0x17 | 0x19 | 0x1c..=0x7e) {
+                    i += 1;
+                }
+                for &byte in &input[start..i] {
+                    handler.put(byte);
+                }
+                if i < input.len() {
+                    self.step(input[i], handler);
+                    i += 1;
                 }
             } else {
                 let byte = input[i];
@@ -175,6 +218,68 @@ impl<const N: usize> Parser<N> {
                 i += 1;
             }
         }
+    }
+
+    #[inline]
+    fn header<P: Perform + ?Sized>(&mut self, input: &[u8], handler: &mut P) -> usize {
+        let param_state = if self.state >= DCS_ENTRY {
+            DCS_PARAM
+        } else {
+            CSI_PARAM
+        };
+        let mut i = 0;
+        while i < input.len() {
+            let byte = input[i];
+            let digit = byte.wrapping_sub(b'0');
+            if digit < 10 {
+                self.state = param_state;
+                if !self.params.full() {
+                    let mut value = self.param as u32;
+                    while i < input.len() && input[i].is_ascii_digit() {
+                        value = (value * 10 + (input[i] - b'0') as u32).min(u16::MAX as u32);
+                        i += 1;
+                    }
+                    self.param = value as u16;
+                } else {
+                    self.ignoring = true;
+                    i += 1;
+                }
+            } else if byte == b';' || byte == b':' {
+                self.state = param_state;
+                if self.params.push(self.param, byte == b':') {
+                    self.param = 0;
+                } else {
+                    self.ignoring = true;
+                }
+                i += 1;
+            } else {
+                if (0x40..=0x7e).contains(&byte) {
+                    if !self.params.push(self.param, false) {
+                        self.ignoring = true;
+                    }
+                    let intermediates = &self.intermediates[..self.intermediate_len as usize];
+                    if param_state == DCS_PARAM {
+                        self.state = DCS_DATA;
+                        handler.hook(&self.params, intermediates, self.ignoring, byte as char);
+                    } else {
+                        self.state = GROUND;
+                        handler.csi_dispatch(
+                            &self.params,
+                            intermediates,
+                            self.ignoring,
+                            byte as char,
+                        );
+                    }
+                    return i + 1;
+                }
+                self.step(byte, handler);
+                i += 1;
+                if self.state != param_state {
+                    break;
+                }
+            }
+        }
+        i
     }
 
     #[inline]
@@ -319,7 +424,7 @@ impl<const N: usize> Parser<N> {
 
     #[inline]
     fn decoded<P: Perform + ?Sized>(handler: &mut P, c: char) {
-        if ('\u{80}'..='\u{9f}').contains(&c) {
+        if c <= '\u{1f}' || ('\u{80}'..='\u{9f}').contains(&c) {
             handler.execute(c as u8);
         } else {
             handler.print(c);
@@ -327,31 +432,42 @@ impl<const N: usize> Parser<N> {
     }
 
     fn start_utf8<P: Perform + ?Sized>(&mut self, input: &[u8], handler: &mut P) -> usize {
-        let width = match input[0] {
-            0xc2..=0xdf => 2,
-            0xe0..=0xef => 3,
-            0xf0..=0xf4 => 4,
-            _ => 1,
-        };
-        let len = input.len().min(width);
+        let len = scan::escape(input);
         match core::str::from_utf8(&input[..len]) {
             Ok(text) => {
-                if let Some(c) = text.chars().next() {
+                for c in text.chars() {
                     Self::decoded(handler, c);
                 }
                 len
             }
-            Err(error) => match error.error_len() {
-                Some(invalid) => {
-                    handler.print('\u{fffd}');
-                    invalid
+            Err(error) => {
+                let valid = error.valid_up_to();
+                if let Ok(text) = core::str::from_utf8(&input[..valid]) {
+                    for c in text.chars() {
+                        Self::decoded(handler, c);
+                    }
                 }
-                None => {
-                    self.utf8[..len].copy_from_slice(&input[..len]);
-                    self.utf8_len = len as u8;
-                    len
+                match error.error_len() {
+                    Some(invalid) => {
+                        if invalid == 1 && input[valid] <= 0x9f {
+                            handler.execute(input[valid]);
+                        } else {
+                            handler.print('\u{fffd}');
+                        }
+                        valid + invalid
+                    }
+                    None if len < input.len() => {
+                        handler.print('\u{fffd}');
+                        len
+                    }
+                    None => {
+                        let partial = len - valid;
+                        self.utf8[..partial].copy_from_slice(&input[valid..len]);
+                        self.utf8_len = partial as u8;
+                        len
+                    }
                 }
-            },
+            }
         }
     }
 
@@ -394,13 +510,15 @@ impl<const N: usize> Parser<N> {
 pub trait Perform {
     /// One decoded printable Unicode scalar, including DEL.
     fn print(&mut self, _c: char) {}
-    /// A run of printable ASCII. Defaults to one [`Self::print`] per character.
+    /// A run of printable ASCII bytes. Defaults to one [`Self::print`] per byte.
     ///
     /// Overriding this method reduces callback overhead; preserve order relative
     /// to all other callbacks. Call boundaries are not part of text semantics.
     #[inline]
-    fn text(&mut self, text: &str) {
-        for byte in text.bytes() {
+    /// Every byte is in `0x20..=0x7f`; no UTF-8 validation is needed to consume
+    /// the bytes. The byte-slice API avoids redundant validation or unsafe casts.
+    fn text(&mut self, text: &[u8]) {
+        for &byte in text {
             self.print(byte as char);
         }
     }
