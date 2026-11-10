@@ -1,0 +1,4 @@
+[1m[92m    Finished[0m `release` profile [optimized] target(s) in 0.00s
+[1m[92m     Running[0m `comparison/target/release/scan --samples 7 --ms 25`
+scanner-only ablation: production src/scan.rs versus scalar iterator; arch=x86_64, os=linux, word_bytes=8, samples=7, target_ms=25
+ns/byte divides by input length; each fixture scans to its last byte or end; both implementations receive identical buffers

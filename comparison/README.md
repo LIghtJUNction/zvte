@@ -116,9 +116,12 @@ iterations, and reporting. Use enough iterations that those fixed costs are smal
 The worker reports the exact total input bytes, allowing cycles/byte and
 branch-misses/byte to be computed. Divide misses by branches for the branch-miss
 percentage. A host without a usable PMU must report counters as unavailable.
-Timing alone cannot establish branch prediction performance. The manual
-Benchmark workflow attempts counters and uploads either their output or the
-actual failure.
+Timing alone cannot establish branch prediction performance. The Benchmark
+workflow attempts counters and uploads either their output or the actual failure.
+When physical counters are unavailable, its x86_64 job also runs Valgrind
+Cachegrind branch simulation with a fixed 256 parses per workload and engine.
+Simulation artifacts are explicitly separate from hardware PMU measurements;
+the instrumented runtime is never used as throughput evidence.
 
 ## Native-word scanner ablation
 

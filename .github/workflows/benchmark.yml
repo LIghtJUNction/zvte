@@ -57,7 +57,44 @@ jobs:
           else
             echo 'Hardware counters unavailable on this runner; see perf-capability.txt.' >> benchmark-results/perf-capability.txt
           fi
+      - name: Simulate branches with Cachegrind when hardware counters are unavailable
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          if [ -f benchmark-results/perf-ascii-zvte.csv ]; then
+            exit 0
+          fi
+          if ! command -v valgrind >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install --no-install-recommends -y valgrind
+          fi
+          mkdir -p benchmark-results/branch-simulation
+          valgrind --version > benchmark-results/branch-simulation/version.txt
+          for workload in ascii csi osc color-log short-chunks one-byte dcs unicode recording malformed truncated; do
+            for engine in zvte vte; do
+              valgrind --tool=cachegrind --branch-sim=yes --cache-sim=no --error-exitcode=1 --cachegrind-out-file="benchmark-results/branch-simulation/$workload-$engine.out" --log-file="benchmark-results/branch-simulation/$workload-$engine.log" comparison/target/release/bench --mode strict --engine "$engine" --filter "$workload" --perf-iterations 256 > "benchmark-results/branch-simulation/$workload-$engine-work.csv"
+            done
+          done
+          python3 - <<'PY'
+          import csv
+          from pathlib import Path
+          root = Path('benchmark-results/branch-simulation')
+          with (root / 'simulated-branches.csv').open('w', newline='') as target:
+              writer = csv.writer(target)
+              writer.writerow(['workload', 'engine', 'iterations', 'total_bytes', 'conditional_branches', 'conditional_misses', 'indirect_branches', 'indirect_misses', 'total_branches', 'total_misses', 'simulated_miss_percent'])
+              for path in sorted(root.glob('*.out')):
+                  lines = path.read_text().splitlines()
+                  events = next(line.split()[1:] for line in lines if line.startswith('events:'))
+                  counts = next(line.split()[1:] for line in lines if line.startswith('summary:'))
+                  values = dict(zip(events, map(int, counts)))
+                  work = next(csv.DictReader(path.with_name(path.stem + '-work.csv').open()))
+                  branches = values['Bc'] + values['Bi']
+                  misses = values['Bcm'] + values['Bim']
+                  writer.writerow([work['workload'], work['engine'], work['iterations'], work['total_bytes'], values['Bc'], values['Bcm'], values['Bi'], values['Bim'], branches, misses, 100 * misses / branches if branches else 0])
+          (root / 'README.txt').write_text('Cachegrind branch-predictor SIMULATION, not physical hardware PMU measurements. Counts cover the isolated single-engine process, including workload setup and reporting. Both engines use identical inputs and 256 iterations. Worker elapsed_ns is instrumented execution time and must not be used as parser throughput.\n')
+          PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
         with:
           name: benchmark-${{ matrix.os }}
           path: benchmark-results/

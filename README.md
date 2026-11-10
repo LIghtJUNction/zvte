@@ -104,6 +104,21 @@ the caller's responsibility.
 
 ## Verify and measure
 
+Native measurements with Rust 1.99.1 and equal bounded `vte 0.15.0` settings:
+
+| Strict scalar callbacks | x86_64 speedup | aarch64 speedup |
+| --- | ---: | ---: |
+| ASCII text | 2.244× | 2.651× |
+| OSC | 1.497× | 1.674× |
+| Unicode | 0.976× | 0.975× |
+| Eleven-workload geometric mean | 1.574× | 1.563× |
+
+Default parser size is 1,248 bytes versus 1,432 bytes for the bounded reference;
+both allocate zero bytes. [Full report and raw measurements](comparison/results/REPORT.md)
+include every workload, MiB/s, ns/byte, CPU details, scanner ablations, and
+separately labeled batch-callback results. The 2× target is met for ASCII;
+the complete suite's aggregate remains below 2×.
+
 ```sh
 cargo test --locked
 cargo +1.74.0 test --locked
