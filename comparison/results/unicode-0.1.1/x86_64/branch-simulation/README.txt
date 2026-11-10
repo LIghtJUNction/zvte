@@ -1,0 +1,1 @@
+Cachegrind branch-predictor SIMULATION, not physical hardware PMU measurements. Counts cover the isolated single-engine process, including workload setup and reporting. Both engines use identical inputs and 256 iterations. Worker elapsed_ns is instrumented execution time and must not be used as parser throughput.

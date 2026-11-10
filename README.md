@@ -104,20 +104,26 @@ the caller's responsibility.
 
 ## Verify and measure
 
-Native measurements with Rust 1.99.1 and equal bounded `vte 0.15.0` settings:
+Native measurements of the optimized 0.1.1 parser against bounded `vte 0.15.0`,
+using Rust 1.99.1 and strict scalar callbacks. The machines were Intel Xeon
+6973P-C (x86_64) and Arm Neoverse-N2 (aarch64):
 
 | Strict scalar callbacks | x86_64 speedup | aarch64 speedup |
 | --- | ---: | ---: |
-| ASCII text | 2.244× | 2.651× |
-| OSC | 1.497× | 1.674× |
-| Unicode | 0.976× | 0.975× |
-| Eleven-workload geometric mean | 1.574× | 1.563× |
+| ASCII text | 1.976× | 2.752× |
+| Original Unicode workload | 1.561× | 1.250× |
+| Unicode in single-byte chunks | 2.256× | 1.560× |
+| Original eleven-workload geometric mean | 1.572× | 1.622× |
 
-Default parser size is 1,248 bytes versus 1,432 bytes for the bounded reference;
-both allocate zero bytes. [Full report and raw measurements](comparison/results/REPORT.md)
-include every workload, MiB/s, ns/byte, CPU details, scanner ablations, and
-separately labeled batch-callback results. The 2× target is met for ASCII;
-the complete suite's aggregate remains below 2×.
+Valid Unicode now uses one combined validation/decoding pass. Split scalars
+validate only newly received continuation bytes. Default parser size remains
+1,248 bytes versus 1,432 bytes for the bounded reference; both allocate zero bytes.
+[Full Unicode optimization report and raw measurements](comparison/results/unicode-0.1.1/REPORT.md)
+include all seventeen workloads, ns/byte, MiB/s, platform details, limitations
+and the original unchanged Unicode fixture. The ARM two-byte-script result is
+effectively parity. These results do not establish a universal speedup or an
+aggregate 2× result. [The original 0.1.0 report](comparison/results/REPORT.md)
+remains available with its original CPU/run provenance.
 
 ```sh
 cargo test --locked

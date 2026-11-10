@@ -16,6 +16,12 @@ cargo run --release --manifest-path comparison/Cargo.toml --locked --bin bench -
   --mode batch --samples 7 --ms 100 > batch.csv 2> batch-metadata.txt
 ```
 
+Normal `--filter NAME` selects workload names containing `NAME`. For example,
+`--filter unicode` runs the original Unicode workload and all six additional
+Unicode cases. The isolated `--perf-iterations N` mode requires an exact workload
+name instead: `--filter unicode` selects only `unicode` in that mode, while
+`--filter unicode-cjk` selects only `unicode-cjk`.
+
 The benchmark verifies each workload's **complete event stream** before timing.
 Both parsers receive identical bytes and chunk boundaries. Comparison includes
 all print, execute, CSI, ESC, OSC, hook, put, and unhook callbacks, their payloads,
@@ -62,6 +68,12 @@ or compiler versions are separate experiments.
 | one-byte | Same colored records | 1 |
 | dcs | DCS headers, payloads and terminators | whole input |
 | unicode | Chinese, emoji, Greek, Cyrillic and accents | whole input |
+| unicode-cjk | Three-byte Chinese scalars, without ANSI sequences | whole input |
+| unicode-two-byte | Greek, Cyrillic, Arabic, Hebrew and accents; all two-byte scalars | whole input |
+| unicode-emoji | Four-byte emoji scalars, without ANSI sequences | whole input |
+| unicode-mixed | Numbered log records with varied scripts, emoji, ASCII, tabs, SGR and CR/LF | whole input |
+| unicode-short-chunks | Same Chinese text as unicode-cjk | 17 |
+| unicode-one-byte | Same emoji text as unicode-emoji | 1 |
 | recording | Actual program output captured through a pseudoterminal | 4,096 |
 | malformed | Invalid UTF-8, controls, bad parameters, cancellation | 31 |
 | truncated | Colored text ending inside a CSI header | 4,096 |
@@ -69,6 +81,14 @@ or compiler versions are separate experiments.
 Fixture generators are in `src/lib.rs`. The actual recorded bytes and their
 provenance are in `fixtures/`. Truncated streams deliberately do not call
 `finish`: the reference has no equivalent EOF operation.
+
+The original `unicode` generator, repetition count and whole-input chunk boundary
+are unchanged from 0.1.0. The six additional cases separate UTF-8 widths, mixed
+terminal output and incremental completion, so an optimization is not evaluated
+only on the original repeated line. Historical 0.1.0 measurements remain in
+[`results/REPORT.md`](results/REPORT.md); the Unicode iteration is documented in
+[`results/unicode-0.1.1/REPORT.md`](results/unicode-0.1.1/REPORT.md). Keep the
+original eleven-workload aggregate separate from any seventeen-workload aggregate.
 
 ## Reference defects and incremental tests
 
@@ -87,9 +107,18 @@ receives the whole input and `zvte` receives the varied chunks; the event lists
 must match **exactly**. Separate regression tests assert the reference's two
 faults and the corrected, chunk-invariant `zvte` results.
 
-Every timed workload still passes exact **same-chunk** comparison. Unicode uses
-a whole-input chunk because the reference can lose text under some multibyte
-chunk layouts; the incorrect reference behavior is not timed as equivalent work.
+The Unicode regression suite also checks every possible next byte after thirteen
+boundary prefixes, including E0, ED, F0 and F4. The core suite round-trips every
+valid non-C0 Unicode scalar with both whole-input and 17-byte chunks, and checks
+explicit replacement/control events for malformed encodings and ESC interruptions.
+Miri uses a smaller set retaining encoding-width boundaries and the surrogate gap.
+
+Every timed workload still passes exact **same-chunk** comparison. The original
+mixed-script `unicode` case retains its whole-input chunk because the reference
+can lose text under some multibyte chunk layouts. The added 17-byte CJK and
+single-byte emoji cases also pass exact event preflight: their inputs do not
+trigger either known reference defect. This verifies those specific incremental
+workloads; it does not treat the reference as chunk-invariant for arbitrary text.
 
 ## Branch prediction and hardware counters
 

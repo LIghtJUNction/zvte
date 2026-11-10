@@ -1,0 +1,22 @@
+[1m[92m    Finished[0m `release` profile [optimized] target(s) in 0.00s
+[1m[92m     Running[0m `comparison/target/release/bench --mode strict --samples 7 --ms 100`
+zvte 0.1.0 / vte 0.15.0 (default-features=false), arch=x86_64, os=linux, mode=strict, samples=7, target_ms=100
+parser_bytes,zvte,1248
+parser_bytes,vte,1432
+validated,ascii,bytes=76800,chunk=76800,events=76800,zvte_allocs=0,zvte_allocated_bytes=0,vte_allocs=0,vte_allocated_bytes=0
+validated,csi,bytes=49152,chunk=49152,events=6144,zvte_allocs=0,zvte_allocated_bytes=0,vte_allocs=0,vte_allocated_bytes=0
+validated,osc,bytes=60416,chunk=60416,events=9216,zvte_allocs=0,zvte_allocated_bytes=0,vte_allocs=0,vte_allocated_bytes=0
+validated,color-log,bytes=94464,chunk=94464,events=83712,zvte_allocs=0,zvte_allocated_bytes=0,vte_allocs=0,vte_allocated_bytes=0
+validated,short-chunks,bytes=94464,chunk=16,events=83712,zvte_allocs=0,zvte_allocated_bytes=0,vte_allocs=0,vte_allocated_bytes=0
+validated,one-byte,bytes=94464,chunk=1,events=83712,zvte_allocs=0,zvte_allocated_bytes=0,vte_allocs=0,vte_allocated_bytes=0
+validated,dcs,bytes=47104,chunk=47104,events=38912,zvte_allocs=0,zvte_allocated_bytes=0,vte_allocs=0,vte_allocated_bytes=0
+validated,unicode,bytes=76800,chunk=76800,events=35840,zvte_allocs=0,zvte_allocated_bytes=0,vte_allocs=0,vte_allocated_bytes=0
+validated,unicode-cjk,bytes=61440,chunk=61440,events=20480,zvte_allocs=0,zvte_allocated_bytes=0,vte_allocs=0,vte_allocated_bytes=0
+validated,unicode-two-byte,bytes=63488,chunk=63488,events=31744,zvte_allocs=0,zvte_allocated_bytes=0,vte_allocs=0,vte_allocated_bytes=0
+validated,unicode-emoji,bytes=61440,chunk=61440,events=15360,zvte_allocs=0,zvte_allocated_bytes=0,vte_allocs=0,vte_allocated_bytes=0
+validated,unicode-mixed,bytes=80667,chunk=80667,events=43035,zvte_allocs=0,zvte_allocated_bytes=0,vte_allocs=0,vte_allocated_bytes=0
+validated,unicode-short-chunks,bytes=61440,chunk=17,events=20480,zvte_allocs=0,zvte_allocated_bytes=0,vte_allocs=0,vte_allocated_bytes=0
+validated,unicode-one-byte,bytes=61440,chunk=1,events=15360,zvte_allocs=0,zvte_allocated_bytes=0,vte_allocs=0,vte_allocated_bytes=0
+validated,recording,bytes=23352,chunk=4096,events=18209,zvte_allocs=0,zvte_allocated_bytes=0,vte_allocs=0,vte_allocated_bytes=0
+validated,malformed,bytes=39936,chunk=31,events=7680,zvte_allocs=0,zvte_allocated_bytes=0,vte_allocs=0,vte_allocated_bytes=0
+validated,truncated,bytes=32774,chunk=4096,events=18432,zvte_allocs=0,zvte_allocated_bytes=0,vte_allocs=0,vte_allocated_bytes=0
