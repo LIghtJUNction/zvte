@@ -70,9 +70,9 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable action
         with:
-          toolchain: 1.74.0
+          toolchain: 1.99.1
           targets: ${{ matrix.target }}
-      - run: cargo build --lib --no-default-features --locked --target ${{ matrix.target }}
+      - run: cargo +1.99.1 build --lib --no-default-features --locked --target ${{ matrix.target }}
 
   package:
     name: Package and release checks
@@ -102,7 +102,7 @@ jobs:
         with:
           toolchain: nightly
           components: miri
-      - run: cargo miri setup
-      - run: cargo miri test --all-features --locked
+      - run: cargo +nightly miri setup
+      - run: cargo +nightly miri test --all-features --locked
         env:
           MIRIFLAGS: -Zmiri-strict-provenance
