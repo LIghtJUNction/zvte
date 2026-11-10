@@ -97,7 +97,11 @@ jobs:
           python scripts/check-package.py
           python -m unittest discover -s scripts -p 'test_*.py' -v
           cargo publish --dry-run --locked
+          cargo package --locked
           git diff --exit-code
+      - name: Locate the finalized Cargo package
+        id: package
+        run: python scripts/release.py package-path
       - name: Push verified version commit
         run: git push origin "HEAD:refs/heads/$RELEASE_BRANCH"
       - name: Publish verified archive to crates.io
@@ -117,11 +121,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.version.outputs.tag }}
           VERSION: ${{ steps.version.outputs.version }}
+          RELEASE_ARCHIVE: ${{ steps.package.outputs.path }}
         run: |
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" "target/package/zvte-$VERSION.crate" --clobber
+            gh release upload "$RELEASE_TAG" "$RELEASE_ARCHIVE" --clobber
           else
-            gh release create "$RELEASE_TAG" "target/package/zvte-$VERSION.crate" --verify-tag --title "zvte $VERSION" --generate-notes
+            gh release create "$RELEASE_TAG" "$RELEASE_ARCHIVE" --verify-tag --title "zvte $VERSION" --generate-notes
           fi
           gh release view "$RELEASE_TAG" --json url,tagName,isDraft
           echo "Published zvte $VERSION to crates.io and GitHub Releases." >> "$GITHUB_STEP_SUMMARY"

@@ -1,5 +1,6 @@
 [package]
 name = "zvte"
+authors = ["LIghtJUNction"]
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.74"

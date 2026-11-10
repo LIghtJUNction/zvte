@@ -5,7 +5,10 @@ on:
     branches: [main]
     paths:
       - src/**
-      - comparison/**
+      - comparison/src/**
+      - comparison/Cargo.toml
+      - comparison/Cargo.lock
+      - comparison/fixtures/*.ansi
       - .github/workflows/benchmark.yml
   workflow_dispatch:
 

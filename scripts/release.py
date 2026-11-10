@@ -115,11 +115,19 @@ def wait_for_checksum(version, expected, *, attempts=8, delay=2):
     )
 
 
+def package_archive(root, version):
+    metadata = json.loads(subprocess.check_output(
+        ["cargo", "metadata", "--no-deps", "--format-version=1", "--locked"], cwd=root,
+    ))
+    archive = Path(metadata["target_directory"]) / "package" / f"zvte-{version}.crate"
+    if not archive.is_file():
+        raise ValueError("run cargo package --locked after the publish dry-run to finalize the archive")
+    return archive
+
+
 def publish(root):
     version = read_version(root)
-    archive = root / f"target/package/zvte-{version}.crate"
-    if not archive.is_file():
-        raise ValueError("run cargo publish --dry-run --locked before publication")
+    archive = package_archive(root, version)
     checksum = hashlib.sha256(archive.read_bytes()).hexdigest()
     existing = registry_checksum(version)
     if existing is not None:
@@ -141,6 +149,7 @@ def main():
     prepare_command = subcommands.add_parser("prepare")
     prepare_command.add_argument("--bump", choices=["none", "patch", "minor", "major"], required=True)
     subcommands.add_parser("version")
+    subcommands.add_parser("package-path")
     subcommands.add_parser("publish")
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
@@ -153,6 +162,12 @@ def main():
         print(outputs, end="")
     elif args.command == "version":
         print(read_version(root))
+    elif args.command == "package-path":
+        archive = package_archive(root, read_version(root))
+        if os.environ.get("GITHUB_OUTPUT"):
+            with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+                output.write(f"path={archive}\n")
+        print(archive)
     else:
         publish(root)
 

@@ -1,4 +1,5 @@
 import importlib.util
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -57,10 +58,12 @@ class ReleaseTests(unittest.TestCase):
             (root / "Cargo.toml").write_text('[package]\nname = "zvte"\nversion = "0.1.0"\n')
             (root / "target/package").mkdir(parents=True)
             (root / "target/package/zvte-0.1.0.crate").write_bytes(b"archive")
+            metadata = json.dumps({"target_directory": str(root / "target")}).encode()
             with patch.object(release, "registry_checksum", return_value="different"):
                 with patch.object(release.subprocess, "run") as run:
-                    with self.assertRaises(ValueError):
-                        release.publish(root)
+                    with patch.object(release.subprocess, "check_output", return_value=metadata):
+                        with self.assertRaises(ValueError):
+                            release.publish(root)
                     run.assert_not_called()
 
     def test_identical_archive_retry_is_idempotent(self):
@@ -70,10 +73,34 @@ class ReleaseTests(unittest.TestCase):
             (root / "target/package").mkdir(parents=True)
             (root / "target/package/zvte-0.1.0.crate").write_bytes(b"archive")
             checksum = release.hashlib.sha256(b"archive").hexdigest()
+            metadata = json.dumps({"target_directory": str(root / "target")}).encode()
             with patch.object(release, "registry_checksum", return_value=checksum):
                 with patch.object(release.subprocess, "run") as run:
-                    release.publish(root)
+                    with patch.object(release.subprocess, "check_output", return_value=metadata):
+                        release.publish(root)
                     run.assert_not_called()
+
+    def test_archive_uses_cargo_metadata_target_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "custom-cargo-output"
+            (target / "package").mkdir(parents=True)
+            expected = target / "package/zvte-0.1.0.crate"
+            expected.write_bytes(b"finalized archive")
+            metadata = json.dumps({"target_directory": str(target)}).encode()
+            with patch.object(release.subprocess, "check_output", return_value=metadata):
+                self.assertEqual(release.package_archive(root, "0.1.0"), expected)
+
+    def test_dry_run_temporary_archive_requires_finalization(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "target"
+            (target / "package/tmp-crate").mkdir(parents=True)
+            (target / "package/tmp-crate/zvte-0.1.0.crate").write_bytes(b"dry-run archive")
+            metadata = json.dumps({"target_directory": str(target)}).encode()
+            with patch.object(release.subprocess, "check_output", return_value=metadata):
+                with self.assertRaisesRegex(ValueError, "cargo package --locked"):
+                    release.package_archive(root, "0.1.0")
 
     def test_registry_eventual_consistency_is_retried(self):
         with patch.object(release, "registry_checksum", side_effect=[None, None, "expected"]) as fetch:
