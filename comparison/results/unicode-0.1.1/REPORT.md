@@ -249,6 +249,55 @@ original workload; use `--filter unicode-cjk` for that exact fixture. Run
 `--validate-only` separately before isolated profiling, since that mode omits
 event collection, calibration and invocation of the other engine.
 
+## Published 0.1.1 verification
+
+Version **0.1.1** was published on **2026-11-10 at 17:08:17 (Asia/Taipei)**.
+The [Release workflow](https://github.com/LIghtJUNction/zvte/actions/runs/42787910555)
+and [release-commit CI](https://github.com/LIghtJUNction/zvte/actions/runs/42787910231)
+completed successfully. The registry archive, its recorded checksum and the
+GitHub Release attachment were independently compared.
+
+- [crates.io version](https://crates.io/crates/zvte/0.1.1), not yanked at verification.
+- [GitHub Release and annotated tag](https://github.com/LIghtJUNction/zvte/releases/tag/v0.1.1), published, not a draft or prerelease.
+- Tag target: `17c87bf66469cfd05cc505f6e62c0d96a90b5092`.
+- Archive size: **15,188 bytes**.
+- SHA-256: `f9aa6ef17b77c82f0b77f93cc4a31015848097622997a3b40acaf4d843928933`.
+- [Published API documentation](https://docs.rs/zvte/0.1.1/zvte/) was also checked successfully.
+
+The release commit changes only version metadata, documentation and recorded
+results relative to the measured parser. Its parser source is identical to
+`a2368c7`. A [complete native repeat](https://github.com/LIghtJUNction/zvte/actions/runs/42787910395)
+also passed at the actual published commit. This time x86_64 used **AMD EPYC 7763**;
+aarch64 again used **Arm Neoverse-N2**. Each entry below is the within-run strict
+speedup against vte; these independent runs are not pooled with the Intel run.
+
+| Workload | AMD x86_64 speedup | aarch64 speedup |
+| --- | ---: | ---: |
+| ascii | 2.168× | 2.752× |
+| csi | 1.856× | 1.476× |
+| osc | 1.125× | 1.697× |
+| color-log | 1.964× | 2.000× |
+| short-chunks | 1.772× | 1.892× |
+| one-byte | 1.586× | 1.497× |
+| dcs | 2.250× | 1.989× |
+| unicode | 1.462× | 1.248× |
+| unicode-cjk | 1.115× | 1.072× |
+| unicode-two-byte | 1.289× | 1.003× |
+| unicode-emoji | 1.136× | 1.051× |
+| unicode-mixed | 1.541× | 1.454× |
+| unicode-short-chunks | 1.115× | 1.142× |
+| unicode-one-byte | 2.044× | 1.559× |
+| recording | 1.648× | 1.677× |
+| malformed | 1.155× | 1.048× |
+| truncated | 1.282× | 1.273× |
+
+All seventeen medians are numerically above vte in this repeat; the ARM two-byte
+case remains effectively parity. The original Unicode workload reaches
+**678.089 MiB/s on AMD** and **676.475 MiB/s on ARM**. Both engines still allocate
+zero bytes. Raw times, minima/maxima, complete strict/batch/scanner results and
+metadata are retained in [`release-17c87bf6/`](release-17c87bf6/). Earlier interim
+measurements are not substituted for these published-code results.
+
 ## Evidence review
 
 | Review question | Evidence and limit |
