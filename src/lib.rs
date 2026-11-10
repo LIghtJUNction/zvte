@@ -185,6 +185,12 @@ impl<const N: usize> Parser<N> {
                 } else if byte < 0x20 || (0x80..=0x9f).contains(&byte) {
                     handler.execute(byte);
                     i += 1;
+                } else if input.len() - i == 1 && (0xc2..=0xf4).contains(&byte) {
+                    // A single valid lead cannot be decoded yet. Store it
+                    // directly instead of invoking the whole-run validator.
+                    self.utf8[0] = byte;
+                    self.utf8_len = 1;
+                    i += 1;
                 } else {
                     i += self.start_utf8(&input[i..], handler);
                 }
@@ -581,34 +587,60 @@ impl<const N: usize> Parser<N> {
     }
 
     fn complete_utf8<P: Perform + ?Sized>(&mut self, input: &[u8], handler: &mut P) -> usize {
-        let old = self.utf8_len as usize;
-        let width = match self.utf8[0] {
+        let first = self.utf8[0];
+        let width = match first {
             0xc2..=0xdf => 2,
             0xe0..=0xef => 3,
             _ => 4,
         };
-        let take = input.len().min(width - old);
-        self.utf8[old..old + take].copy_from_slice(&input[..take]);
-        match core::str::from_utf8(&self.utf8[..old + take]) {
-            Ok(text) => {
-                if let Some(c) = text.chars().next() {
-                    Self::decoded(handler, c);
+        let mut len = self.utf8_len as usize;
+        let mut consumed = 0;
+        // Buffered bytes are already a valid incomplete prefix. Validate only
+        // new continuation bytes; on failure leave the offending byte for the
+        // ground-state parser and replace the preceding prefix exactly once.
+        while len < width && consumed < input.len() {
+            let byte = input[consumed];
+            let valid = if len == 1 {
+                match first {
+                    0xe0 => (0xa0..=0xbf).contains(&byte),
+                    0xed => (0x80..=0x9f).contains(&byte),
+                    0xf0 => (0x90..=0xbf).contains(&byte),
+                    0xf4 => (0x80..=0x8f).contains(&byte),
+                    _ => byte.wrapping_sub(0x80) < 0x40,
                 }
+            } else {
+                byte.wrapping_sub(0x80) < 0x40
+            };
+            if !valid {
                 self.utf8_len = 0;
-                take
+                handler.print('\u{fffd}');
+                return consumed;
             }
-            Err(error) => match error.error_len() {
-                Some(invalid) => {
-                    self.utf8_len = 0;
-                    handler.print('\u{fffd}');
-                    invalid.saturating_sub(old)
-                }
-                None => {
-                    self.utf8_len = (old + take) as u8;
-                    take
-                }
-            },
+            self.utf8[len] = byte;
+            len += 1;
+            consumed += 1;
         }
+        if len < width {
+            self.utf8_len = len as u8;
+            return consumed;
+        }
+        self.utf8_len = 0;
+        let code = match width {
+            2 => ((first as u32 & 0x1f) << 6) | (self.utf8[1] as u32 & 0x3f),
+            3 => {
+                ((first as u32 & 0x0f) << 12)
+                    | ((self.utf8[1] as u32 & 0x3f) << 6)
+                    | (self.utf8[2] as u32 & 0x3f)
+            }
+            _ => {
+                ((first as u32 & 0x07) << 18)
+                    | ((self.utf8[1] as u32 & 0x3f) << 12)
+                    | ((self.utf8[2] as u32 & 0x3f) << 6)
+                    | (self.utf8[3] as u32 & 0x3f)
+            }
+        };
+        Self::decoded(handler, char::from_u32(code).unwrap_or('\u{fffd}'));
+        consumed
     }
 }
 
