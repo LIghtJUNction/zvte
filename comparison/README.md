@@ -123,6 +123,34 @@ Cachegrind branch simulation with a fixed 256 parses per workload and engine.
 Simulation artifacts are explicitly separate from hardware PMU measurements;
 the instrumented runtime is never used as throughput evidence.
 
+Reproduce the x86_64 simulation using Valgrind 3.26.0 after the independent
+validation above:
+
+```sh
+mkdir -p branch-simulation
+valgrind --version > branch-simulation/version.txt
+for workload in ascii csi osc color-log short-chunks one-byte dcs unicode recording malformed truncated; do
+  for engine in zvte vte; do
+    valgrind --tool=cachegrind --branch-sim=yes --cache-sim=no --error-exitcode=1 \
+      --cachegrind-out-file="branch-simulation/$workload-$engine.out" \
+      --log-file="branch-simulation/$workload-$engine.log" \
+      comparison/target/release/bench --mode strict --engine "$engine" \
+      --filter "$workload" --perf-iterations 256 \
+      > "branch-simulation/$workload-$engine-work.csv"
+  done
+done
+```
+
+The Cachegrind `events:` header identifies `Bc`/`Bi` (conditional/indirect
+branches) and `Bcm`/`Bim` (their modeled misses). Sum each pair in its `summary:`
+line, then divide by the corresponding worker CSV's `total_bytes` for counts
+per byte. The simulated miss percentage is
+`100 × (Bcm + Bim) / (Bc + Bi)`. These process-wide counts include setup and
+reporting. Compare identical iterations and inputs, and retain unfavorable
+results. Fewer branches can coexist with a higher miss percentage or more
+misses per byte. See `results/REPORT.md` for every measured workload and the
+separate hardware-counter availability record.
+
 ## Native-word scanner ablation
 
 ```sh

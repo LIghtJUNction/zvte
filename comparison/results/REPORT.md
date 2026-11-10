@@ -81,6 +81,35 @@ The producer command and provenance are in `../fixtures/README.md`. Synthetic
 workloads cover ASCII, CSI, OSC, mixed colored logs, 16-byte chunks, single-byte
 chunks, DCS, Unicode, malformed streams and a stream ending inside CSI.
 
+## Release-commit reproduction
+
+[A second complete native run](https://github.com/LIghtJUNction/zvte/actions/runs/42755384250)
+tested the published commit `5c967e05e9163ec6a554f9f599b8880a05fda0f3`.
+The parser and benchmark source are unchanged from the primary measurement.
+This time the x86_64 runner used **AMD EPYC 7763**; aarch64 again used
+**Arm Neoverse-N2**. The same seven-sample protocol produced the following
+strict speedups. These are separate runs, not pooled samples or selected maxima.
+
+| Workload | x86_64 speedup | aarch64 speedup |
+| --- | ---: | ---: |
+| ascii | 2.196× | 2.649× |
+| csi | 1.644× | 1.470× |
+| osc | 1.095× | 1.676× |
+| color-log | 2.045× | 1.887× |
+| short-chunks | 2.008× | 1.850× |
+| one-byte | 1.816× | 1.493× |
+| dcs | 2.080× | 2.021× |
+| unicode | 1.057× | 0.974× |
+| recording | 1.616× | 1.612× |
+| malformed | 1.113× | 1.035× |
+| truncated | 1.355× | 1.241× |
+
+The equal-weight geometric means are **1.584×** and **1.566×**.
+The full results, per-byte times, CPU metadata and PMU availability are preserved
+under [`release-5c967e05/`](release-5c967e05/). Differences between machines and
+runs are visible, especially for OSC and Unicode; no cross-machine performance
+guarantee is implied.
+
 ## Batch callbacks
 
 The optional `Perform::text(&[u8])` callback receives printable ASCII runs. Its
@@ -129,10 +158,57 @@ These are scanner-only speedups, not whole-parser throughput claims. See
 Physical cycles, instructions, branches and branch misses were unavailable on
 both hosted runners: their `perf-capability.txt` files record the exact PMU
 failure. The local executor separately returned ENOENT for each hardware event
-while successfully opening a software CPU-clock counter. No hardware branch-miss
-rate is inferred from throughput. The benchmark provides an isolated single-engine
-worker for hosts with accessible PMUs; both engines receive the same iteration
-count and bytes. Instructions are in `../README.md`.
+while successfully opening a software CPU-clock counter. Hardware branch
+prediction performance remains unmeasured. The isolated single-engine worker
+supports PMU measurements on a host that exposes these events.
+
+### x86_64 Cachegrind 3.26.0 simulation
+
+A separate [Benchmark run](https://github.com/LIghtJUNction/zvte/actions/runs/42754068441)
+completed **Cachegrind 3.26.0 branch-predictor simulation** at source
+[`b47110973020bef722f68e0d9993a097590f9abd`](https://github.com/LIghtJUNction/zvte/commit/b47110973020bef722f68e0d9993a097590f9abd).
+Its parser and benchmark source match the frozen parsing revision above. Each
+engine processed the identical workload bytes for exactly **256 iterations**
+using the strict callback handler. The reported counts cover the isolated
+single-engine process, including setup and reporting. These are modeled
+conditional plus indirect branch events; they are separate from physical PMU
+counters and native throughput measurements. Instrumented worker `elapsed_ns`
+is excluded from all throughput claims.
+
+The table divides total modeled branches and misses by the exact processed
+input-byte count. Lower counts per byte are better within this simulation.
+
+| Workload | vte branches/B | zvte branches/B | vte misses/B | zvte misses/B |
+| --- | ---: | ---: | ---: | ---: |
+| ascii | 2.127426 | 0.886788 | 0.000337 | 0.040325 |
+| csi | 13.947954 | 7.781492 | 0.979693 | 0.917174 |
+| osc | 11.089146 | 6.534029 | 0.856364 | 0.492127 |
+| color-log | 4.755859 | 2.628816 | 0.283739 | 0.211648 |
+| short-chunks | 6.366491 | 3.464190 | 0.447409 | 0.402705 |
+| one-byte | 22.420358 | 14.539398 | 0.253302 | 0.244145 |
+| dcs | 9.989170 | 4.663317 | 0.413573 | 0.435291 |
+| unicode | 6.260155 | 6.105103 | 0.420355 | 0.390407 |
+| recording | 6.634521 | 4.044636 | 0.500439 | 0.356819 |
+| malformed | 12.270066 | 8.194070 | 0.787920 | 0.543723 |
+| truncated | 10.709233 | 8.015360 | 0.627263 | 0.626500 |
+
+`zvte` produces fewer modeled branches per input byte in all eleven workloads.
+Its modeled misses per byte decrease in nine workloads and increase for ASCII
+and DCS. The ASCII increase is substantial: **0.000337 → 0.040325 misses/byte**;
+the DCS result is **0.413573 → 0.435291 misses/byte**. The miss percentage
+(`misses / branches`) is higher in nine of eleven workloads because branch
+counts and miss counts change by different proportions. For example, colored
+logs reduce misses per byte from 0.283739 to 0.211648 while their modeled miss
+percentage rises from 5.966% to 8.051%. The result is fewer modeled branches
+with workload-dependent miss behavior; it supports no blanket claim of superior
+branch prediction.
+
+The unrounded counts, conditional/indirect breakdown and simulated miss
+percentages are in
+[`x86_64/branch-simulation/simulated-branches.csv`](x86_64/branch-simulation/simulated-branches.csv),
+with the tool version and scope alongside it. The complete per-process
+Cachegrind outputs remain in the run's benchmark artifact. Reproduction
+commands for both PMU measurement and simulation are in `../README.md`.
 
 ## Correctness and supported behavior
 
@@ -167,8 +243,29 @@ choices, and the baseline uses the same bounds.
 | MSRV cross builds | WASM, Cortex-M, RISC-V and aarch64 passed |
 | Miri | full core suite passed with strict provenance |
 | Package boundary | zero dependencies, no build.rs, comparison excluded |
-| Release scripts | 13 tests passed, including bump and publication retry checks |
+| Release scripts | 15 tests passed, including bump, archive finalization and publication retry checks |
 | cargo publish --dry-run | passed in CI |
+
+## Publication result
+
+**zvte 0.1.0 was published on 2026-11-10 at 04:23:57 UTC.**
+The [Release workflow](https://github.com/LIghtJUNction/zvte/actions/runs/42755384665)
+completed successfully, including its full CI gate, dry run, verified package,
+crates.io upload, annotated tag and GitHub Release. The
+[standalone CI](https://github.com/LIghtJUNction/zvte/actions/runs/42755384230)
+also passed all eleven jobs.
+
+- Registry: [zvte 0.1.0](https://crates.io/crates/zvte/0.1.0), not yanked at verification.
+- Release: [v0.1.0](https://github.com/LIghtJUNction/zvte/releases/tag/v0.1.0), published, not a draft or prerelease.
+- Annotated tag target: `5c967e05e9163ec6a554f9f599b8880a05fda0f3`.
+- Published crate and Release attachment: **13,855 bytes** each.
+- SHA-256, independently checked against the downloaded registry archive and GitHub asset digest:
+  `1e3bb7ee938cb91c38ce7544c9446d8ed327eea9f3134c46eae558585f5b4be9`.
+
+The published parser source is identical to the primary benchmark revision.
+Manual releases support `none`, `patch`, `minor` and `major`. Version preparation,
+tests, publication and tag/Release creation happen in the same trusted workflow;
+PR events cannot publish. Version retries require an identical published checksum.
 
 ## Reproduce
 
@@ -190,4 +287,4 @@ cargo run --release --manifest-path comparison/Cargo.toml --locked --bin scan --
 | Are comparison claims fair? | Identical bytes/chunks/callback arithmetic/capacities; exact event preflight; all workloads reported |
 | Does the optimization work on both architectures? | Native x86_64 and aarch64 parser results plus production-scanner ablation |
 | Are speed claims supported? | Individual rows and raw CSV; full-suite 2×/3× claim is not made |
-| Are unavailable metrics identified? | Physical PMU counters explicitly unavailable; no guessed branch rates |
+| Are unavailable metrics identified? | Physical PMU counters explicitly unavailable; Cachegrind simulation labeled separately with all workload results |
