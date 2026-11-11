@@ -68,7 +68,9 @@ fn benchmark() -> Result<(), String> {
                     .map_err(|e| e.to_string())?;
             }
             "--help" => {
-                println!("scan [--samples N] [--ms N]\nProduction native-word scanner versus scalar iterator; scanner-only ablation.");
+                println!(
+                    "scan [--samples N] [--ms N]\nProduction native-word scanner versus scalar iterator; scanner-only ablation."
+                );
                 return Ok(());
             }
             _ => return Err(format!("unknown argument {arg}")),
@@ -82,10 +84,18 @@ fn benchmark() -> Result<(), String> {
         ("escape", production::escape, escape_scalar),
         ("osc", production::osc_run, osc_scalar),
     ];
-    eprintln!("scanner-only ablation: production src/scan.rs versus scalar iterator; arch={}, os={}, word_bytes={}, samples={samples}, target_ms={milliseconds}",
-        std::env::consts::ARCH, std::env::consts::OS, std::mem::size_of::<usize>());
-    eprintln!("ns/byte divides by input length; each fixture scans to its last byte or end; both implementations receive identical buffers");
-    println!("scanner,input,engine,bytes,matched_prefix,iterations,samples,median_ns_per_byte,min_ns_per_byte,max_ns_per_byte,speedup_vs_scalar");
+    eprintln!(
+        "scanner-only ablation: production src/scan.rs versus scalar iterator; arch={}, os={}, word_bytes={}, samples={samples}, target_ms={milliseconds}",
+        std::env::consts::ARCH,
+        std::env::consts::OS,
+        std::mem::size_of::<usize>()
+    );
+    eprintln!(
+        "ns/byte divides by input length; each fixture scans to its last byte or end; both implementations receive identical buffers"
+    );
+    println!(
+        "scanner,input,engine,bytes,matched_prefix,iterations,samples,median_ns_per_byte,min_ns_per_byte,max_ns_per_byte,speedup_vs_scalar"
+    );
     for &(name, native, scalar) in &scanners {
         for length in [16usize, 64, 4096] {
             for variant in ["ascii", "control-at-end", "high-byte-at-end"] {
@@ -133,7 +143,9 @@ fn benchmark() -> Result<(), String> {
                     [("native-word", native_stats), ("scalar", scalar_stats)]
                 {
                     let speedup = scalar_stats.0 / median;
-                    println!("{name},{variant},{engine},{length},{expected},{iterations},{samples},{median:.6},{min:.6},{max:.6},{speedup:.3}");
+                    println!(
+                        "{name},{variant},{engine},{length},{expected},{iterations},{samples},{median:.6},{min:.6},{max:.6},{speedup:.3}"
+                    );
                 }
             }
         }

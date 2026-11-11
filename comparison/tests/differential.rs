@@ -1,4 +1,4 @@
-use zvte_comparison::{event_streams, verify, workloads, Event, Events};
+use zvte_comparison::{Event, Events, event_streams, verify, workloads};
 
 fn equal_under_arbitrary_chunks(chunks: &[&[u8]]) {
     // Whole-input vte avoids its documented partial-UTF8 defects. Comparison

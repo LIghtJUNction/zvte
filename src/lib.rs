@@ -38,7 +38,7 @@ mod params;
 mod scan;
 mod state;
 
-pub use params::{Params, ParamsIter, MAX_PARAMS};
+pub use params::{MAX_PARAMS, Params, ParamsIter};
 use state::*;
 
 /// Default number of stored OSC payload bytes (separators consume no space).

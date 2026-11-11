@@ -3,7 +3,7 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::hint::black_box;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
-use zvte_comparison::{verify, workloads, Workload};
+use zvte_comparison::{Workload, verify, workloads};
 
 struct CountingAllocator;
 static COUNTING: AtomicBool = AtomicBool::new(false);
@@ -294,7 +294,9 @@ fn benchmark() -> Result<(), String> {
                 )
             }
             "--help" => {
-                println!("bench [--samples N] [--ms N] [--filter NAME] [--engine both|zvte|vte] [--mode strict|batch] [--validate-only] [--perf-iterations N]");
+                println!(
+                    "bench [--samples N] [--ms N] [--filter NAME] [--engine both|zvte|vte] [--mode strict|batch] [--validate-only] [--perf-iterations N]"
+                );
                 return Ok(());
             }
             _ => return Err(format!("unknown argument {arg}")),
@@ -372,8 +374,11 @@ fn benchmark() -> Result<(), String> {
         .find_map(|line| line.strip_prefix("version = "))
         .unwrap_or("unknown")
         .trim_matches('"');
-    eprintln!("zvte {zvte_version} / vte 0.15.0 (default-features=false), arch={}, os={}, mode={mode}, samples={samples}, target_ms={milliseconds}",
-        std::env::consts::ARCH, std::env::consts::OS);
+    eprintln!(
+        "zvte {zvte_version} / vte 0.15.0 (default-features=false), arch={}, os={}, mode={mode}, samples={samples}, target_ms={milliseconds}",
+        std::env::consts::ARCH,
+        std::env::consts::OS
+    );
     eprintln!("parser_bytes,zvte,{}", std::mem::size_of::<zvte::Parser>());
     eprintln!("parser_bytes,vte,{}", std::mem::size_of::<vte::Parser>());
     for workload in &selected {
@@ -384,13 +389,24 @@ fn benchmark() -> Result<(), String> {
         }
         let za = allocation_count(z_function, workload);
         let va = allocation_count(vte_once, workload);
-        eprintln!("validated,{},bytes={},chunk={},events={},zvte_allocs={},zvte_allocated_bytes={},vte_allocs={},vte_allocated_bytes={}",
-            workload.name, workload.data.len(), workload.chunk, expected.events, za.0, za.1, va.0, va.1);
+        eprintln!(
+            "validated,{},bytes={},chunk={},events={},zvte_allocs={},zvte_allocated_bytes={},vte_allocs={},vte_allocated_bytes={}",
+            workload.name,
+            workload.data.len(),
+            workload.chunk,
+            expected.events,
+            za.0,
+            za.1,
+            va.0,
+            va.1
+        );
     }
     if validate_only {
         return Ok(());
     }
-    println!("workload,mode,engine,bytes,chunk,iterations,samples,median_ns_per_byte,min_ns_per_byte,max_ns_per_byte,MiB_per_s,speedup_vs_vte");
+    println!(
+        "workload,mode,engine,bytes,chunk,iterations,samples,median_ns_per_byte,min_ns_per_byte,max_ns_per_byte,MiB_per_s,speedup_vs_vte"
+    );
     for workload in &selected {
         let warm_v = run(vte_once, workload, 8);
         let warm_z = run(z_function, workload, 8);
@@ -438,7 +454,12 @@ fn benchmark() -> Result<(), String> {
             if let Some((median, min, max)) = measurements {
                 let throughput = 1e9 / median / (1024.0 * 1024.0);
                 let speedup = vs.map(|v| v.0 / median).unwrap_or(f64::NAN);
-                println!("{},{mode},{name},{},{},{iterations},{samples},{median:.6},{min:.6},{max:.6},{throughput:.3},{speedup:.3}", workload.name, workload.data.len(), workload.chunk);
+                println!(
+                    "{},{mode},{name},{},{},{iterations},{samples},{median:.6},{min:.6},{max:.6},{throughput:.3},{speedup:.3}",
+                    workload.name,
+                    workload.data.len(),
+                    workload.chunk
+                );
             }
         }
     }
