@@ -12,7 +12,7 @@ def main():
     manifest = tomllib.loads((root / "Cargo.toml").read_text())
     package = manifest["package"]
     assert package["name"] == "zvte", "unexpected package name"
-    assert package["rust-version"] == "1.74", "update MSRV CI with the manifest"
+    assert package["rust-version"] == "1.99.1", "update MSRV CI with the manifest"
     assert not (root / "build.rs").exists(), "build.rs is forbidden"
     assert package.get("build", False) is False, "build scripts are forbidden"
     metadata = json.loads(subprocess.check_output(

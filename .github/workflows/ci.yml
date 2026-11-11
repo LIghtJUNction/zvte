@@ -42,7 +42,7 @@ jobs:
       - run: cargo fmt --manifest-path comparison/Cargo.toml --all -- --check
 
   msrv:
-    name: MSRV 1.74.0
+    name: MSRV 1.99.1
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -51,7 +51,7 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable action
         with:
-          toolchain: 1.74.0
+          toolchain: 1.99.1
       - run: cargo test --all-features --locked
       - run: cargo test --no-default-features --locked
       - run: cargo doc --no-deps --all-features --locked

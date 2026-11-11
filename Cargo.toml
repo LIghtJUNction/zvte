@@ -1,9 +1,9 @@
 [package]
 name = "zvte"
 authors = ["LIghtJUNction"]
-version = "0.1.1"
-edition = "2021"
-rust-version = "1.74" # MSRV; CI verifies Rust 1.99.1 targets and nightly Miri
+version = "0.1.2"
+edition = "2024"
+rust-version = "1.99.1"
 description = "Zero-dependency, no_std ANSI/VT parser with allocation-free streaming and batched ASCII"
 license = "MIT"
 repository = "https://github.com/LIghtJUNction/zvte"
@@ -14,6 +14,7 @@ categories = ["parsing", "no-std", "embedded"]
 include = ["src/**/*.rs", "Cargo.toml", "README.md", "LICENSE-MIT", "CHANGELOG.md", "examples/**/*.rs"]
 
 [workspace]
+resolver = "3"
 exclude = ["comparison"]
 
 [dependencies]
