@@ -29,7 +29,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, ubuntu-24.04-arm]
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
@@ -96,7 +96,7 @@ jobs:
                   writer.writerow([work['workload'], work['engine'], work['iterations'], work['total_bytes'], values['Bc'], values['Bcm'], values['Bi'], values['Bim'], branches, misses, 100 * misses / branches if branches else 0])
           (root / 'README.txt').write_text('Cachegrind branch-predictor SIMULATION, not physical hardware PMU measurements. Counts cover the isolated single-engine process, including workload setup and reporting. Both engines use identical inputs and 256 iterations. Worker elapsed_ns is instrumented execution time and must not be used as parser throughput.\n')
           PY
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         if: always()
         with:
           name: benchmark-${{ matrix.os }}
